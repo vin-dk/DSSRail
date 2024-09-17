@@ -4,7 +4,10 @@ import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.RadioButton;
 import javafx.scene.control.TextField;
+import javafx.scene.control.ToggleGroup;
+import javafx.scene.input.KeyCode;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.VBox;
@@ -16,241 +19,230 @@ import javafx.scene.chart.XYChart;
 
 public class MenuSelectionGUI extends Application {
 
-    private TextField[][] factorFields = new TextField[3][3]; // 3 categories, 3 factors each
-    private Stage outputStage; // To track the output window
+    public float tgiOut = 0;
+    public String condition = "";
+    public String recommendedCourse = "";
+    private Stage resultStage;  
+
+    String[] assignments = {"Very Poor", "Poor", "Fair", "Good", "Excellent"};
+    String[] recommendation = {"Immediate shutdown or major repairs required", "Urgent repairs necessary; restrict speeds",
+            "Immediate corrective actions planned", "Schedule preventive maintenance", "Routine monitoring, no immediate action required"};
+
+    private String userChoice = "None";  
+
+    public void defaultTGI(float l, float a, float g, float allowance) {
+        if (allowance <= 0) {
+            System.out.print("System Error");
+            System.exit(0);
+        }
+
+        tgiOut = 100 - ((l + a + g) / allowance) * 100;
+
+        if (tgiOut >= 0 && tgiOut < 20) {
+            condition = assignments[0];
+            recommendedCourse = recommendation[0];
+        } else if (tgiOut >= 20 && tgiOut < 40) {
+            condition = assignments[1];
+            recommendedCourse = recommendation[1];
+        } else if (tgiOut >= 40 && tgiOut < 60) {
+            condition = assignments[2];
+            recommendedCourse = recommendation[2];
+        } else if (tgiOut >= 60 && tgiOut < 80) {
+            condition = assignments[3];
+            recommendedCourse = recommendation[3];
+        } else if (tgiOut >= 80 && tgiOut <= 100) {
+            condition = assignments[4];
+            recommendedCourse = recommendation[4];
+        } else {
+            System.out.print("System error");
+        }
+    }
 
     @Override
     public void start(Stage primaryStage) {
         BorderPane root = new BorderPane();
-        Scene scene = new Scene(root, 800, 600);  // Increased window size
+        root.setPadding(new Insets(10));
 
-        Label headerLabel = new Label("Menu Selection");
-        headerLabel.setStyle("-fx-font-size: 18px;");
-        root.setTop(headerLabel);
-        BorderPane.setAlignment(headerLabel, Pos.CENTER);
-        BorderPane.setMargin(headerLabel, new Insets(10, 0, 10, 0));
-
-        VBox optionsBox = new VBox(20);
-        optionsBox.setAlignment(Pos.CENTER_LEFT);
+        VBox optionsBox = new VBox(10);
         optionsBox.setPadding(new Insets(10));
+        optionsBox.setAlignment(Pos.CENTER_LEFT);
 
-        // Rail Geometry section
-        optionsBox.getChildren().add(createFactorGroup("Rail Geometry", 0, new int[]{5, 10, 20}));
-        // Sleeper section
-        optionsBox.getChildren().add(createFactorGroup("Sleeper", 1, new int[]{5, 10, 20}));
-        // Rail section
-        optionsBox.getChildren().add(createFactorGroup("Rail", 2, new int[]{5, 10, 20}));
+        Label instructionLabel = new Label("Please select an option:");
+        optionsBox.getChildren().add(instructionLabel);
 
-        root.setCenter(optionsBox);
+        ToggleGroup toggleGroup = new ToggleGroup();
 
-        // Enter button
+        RadioButton defaultOption = new RadioButton("Default");
+        defaultOption.setToggleGroup(toggleGroup);
+        defaultOption.setOnAction(e -> userChoice = "Default");
+
+        for (int i = 1; i <= 5; i++) {
+            final int variantNumber = i;
+            RadioButton variantOption = new RadioButton("Variant " + variantNumber);
+            variantOption.setToggleGroup(toggleGroup);
+            variantOption.setOnAction(e -> userChoice = "Variant " + variantNumber);
+            optionsBox.getChildren().add(variantOption);
+        }
+
+        optionsBox.getChildren().add(defaultOption);
+
+        root.setLeft(optionsBox);
+
         Button enterButton = new Button("Enter");
         enterButton.setOnAction(e -> {
-            validateAndCompute(primaryStage);
+            System.out.println("User Choice: " + userChoice);  
+            if ("Default".equals(userChoice)) {
+                openDefaultWindow();  
+            }
+            if (!userChoice.equals("Default")) {
+                primaryStage.close(); 
+            }
         });
 
         BorderPane bottomPane = new BorderPane();
         bottomPane.setRight(enterButton);
+        BorderPane.setMargin(enterButton, new Insets(10));
         root.setBottom(bottomPane);
-        BorderPane.setAlignment(bottomPane, Pos.BOTTOM_RIGHT);
 
+        Scene scene = new Scene(root, 300, 250);
         primaryStage.setScene(scene);
         primaryStage.setTitle("Menu Selection");
         primaryStage.show();
     }
 
-    private VBox createFactorGroup(String label, int categoryIndex, int[] ranges) {
-        VBox group = new VBox(10);
-        group.setAlignment(Pos.CENTER_LEFT);
-
-        Label categoryLabel = new Label(label);
-        categoryLabel.setStyle("-fx-font-size: 14px;");
-        group.getChildren().add(categoryLabel);
+    private void openDefaultWindow() {
+        Stage defaultWindow = new Stage();
+        BorderPane pane = new BorderPane();
+        pane.setPadding(new Insets(10));
 
         GridPane gridPane = new GridPane();
+        gridPane.setPadding(new Insets(10));
         gridPane.setHgap(10);
-        gridPane.setVgap(5);
+        gridPane.setVgap(10);
+        gridPane.setAlignment(Pos.CENTER_LEFT);
 
-        for (int i = 0; i < 3; i++) {
-            Label factorLabel = new Label("Factor " + (i + 1) + " (" + "1-" + ranges[i] + "): ");
-            TextField textField = new TextField();
-            textField.setPromptText("Enter value");
+        Label notice = new Label("All measurements in mm");
+        notice.setStyle("-fx-font-weight: bold;"); 
 
-            final int factorIndex = i;
-            final int range = ranges[i];
+        Label longitudinalLabel = new Label("Longitudinal Deviation: ");
+        TextField longitudinalInput = new TextField();
+        configureInputField(longitudinalInput);
 
-            textField.focusedProperty().addListener((obs, oldVal, newVal) -> {
-                if (!newVal) {
-                    String input = textField.getText();
-                    try {
-                        int value = Integer.parseInt(input);
-                        if (value < 1 || value > range) {
-                            textField.clear();
-                        }
-                    } catch (NumberFormatException e) {
-                        textField.clear();
-                    }
-                }
-            });
+        Label alignmentLabel = new Label("Alignment Deviation: ");
+        TextField alignmentInput = new TextField();
+        configureInputField(alignmentInput);
 
-            factorFields[categoryIndex][factorIndex] = textField;
+        Label gaugeLabel = new Label("Gauge Deviation: ");
+        TextField gaugeInput = new TextField();
+        configureInputField(gaugeInput);
 
-            gridPane.add(factorLabel, 0, i);
-            gridPane.add(textField, 1, i);
-        }
+        Label allowanceLabel = new Label("Allowance: ");
+        TextField allowanceInput = new TextField();
+        configurePositiveInputField(allowanceInput);  
 
-        group.getChildren().add(gridPane);
-
-        return group;
-    }
-
-    private void validateAndCompute(Stage primaryStage) {
-        int[] factors = new int[9];
-        int index = 0;
-        boolean allValid = true;
-
-        // Extracting the values from the 3 categories and 3 factors each
-        for (int i = 0; i < 3; i++) {
-            for (int j = 0; j < 3; j++) {
-                String input = factorFields[i][j].getText();
-                if (input.isEmpty()) {
-                    // Outline missing fields in red
-                    factorFields[i][j].setStyle("-fx-border-color: red; -fx-border-width: 2px;");
-                    allValid = false;
-                } else {
-                    // Clear red border if valid input
-                    factorFields[i][j].setStyle("");
-                    factors[index++] = Integer.parseInt(input);
-                }
+        longitudinalInput.setOnKeyPressed(e -> {
+            if (e.getCode() == KeyCode.ENTER) {
+                alignmentInput.requestFocus();  
             }
-        }
+        });
 
-        if (allValid) {
-            // Proceed with calculation and output
-            double rawOutput = calculateOutput(factors[0], factors[1], factors[2], factors[3], factors[4], 
-                                               factors[5], factors[6], factors[7], factors[8]);
+        alignmentInput.setOnKeyPressed(e -> {
+            if (e.getCode() == KeyCode.ENTER) {
+                gaugeInput.requestFocus();  
+            }
+        });
 
-            // Apply linear scaling to convert raw output to a rating between 1 and 5
-            double rating = linearScale(rawOutput, 1, 5, 1, 425);
-            String classification = classifyRating(rating);
+        gaugeInput.setOnKeyPressed(e -> {
+            if (e.getCode() == KeyCode.ENTER) {
+                allowanceInput.requestFocus();  
+            }
+        });
 
-            // Calculate costs for months 1, 6, and 12
-            double costMonth1 = calculateCost(factors, 1);
-            double costMonth6 = calculateCost(factors, 6);
-            double costMonth12 = calculateCost(factors, 12);
+        allowanceInput.setOnKeyPressed(e -> {
+            if (e.getCode() == KeyCode.ENTER) {
+                allowanceInput.getParent().requestFocus();  
+            }
+        });
 
-            // Close previous output window, if it exists
-            if (outputStage != null) {
-                outputStage.close();
+        gridPane.add(notice, 0, 0);
+        gridPane.add(longitudinalLabel, 0, 1);
+        gridPane.add(longitudinalInput, 1, 1);
+        gridPane.add(alignmentLabel, 0, 2);
+        gridPane.add(alignmentInput, 1, 2);
+        gridPane.add(gaugeLabel, 0, 3);
+        gridPane.add(gaugeInput, 1, 3);
+        gridPane.add(allowanceLabel, 0, 4);
+        gridPane.add(allowanceInput, 1, 4);
+
+        pane.setCenter(gridPane);
+
+        Button enterButton = new Button("Enter");
+        enterButton.setOnAction(e -> {
+            float l = Float.parseFloat(longitudinalInput.getText());
+            float a = Float.parseFloat(alignmentInput.getText());
+            float g = Float.parseFloat(gaugeInput.getText());
+            float allowance = Float.parseFloat(allowanceInput.getText());
+
+            defaultTGI(l, a, g, allowance);
+
+            if (resultStage != null) {
+                resultStage.close();
             }
 
-            showOutputWindow(primaryStage, rawOutput, rating, classification, costMonth1, costMonth6, costMonth12);
-            showBarGraph(primaryStage, factors);  // Show the new bar graph window
-        }
+            openResultWindow();
+        });
+
+        BorderPane bottomPane = new BorderPane();
+        bottomPane.setRight(enterButton);
+        BorderPane.setMargin(enterButton, new Insets(10));
+        pane.setBottom(bottomPane);
+
+        Scene scene = new Scene(pane, 900, 400);
+        defaultWindow.setScene(scene);
+        defaultWindow.setTitle("Deviation Input");
+        defaultWindow.show();
     }
 
-    private double calculateOutput(int a, int b, int c, int d, int e, int f, int g, int h, int i) {
-        // Calculation using the provided formula
-        return 9 * a + 5 * b + 2 * c + 8 * d + 2 * e + 3 * f + 2 * g + 4 * h + 6 * i;
+    private void openResultWindow() {
+        resultStage = new Stage();
+        BorderPane resultPane = new BorderPane();
+        resultPane.setPadding(new Insets(10));
+
+        GridPane gridPane = new GridPane();
+        gridPane.setPadding(new Insets(10));
+        gridPane.setHgap(10);
+        gridPane.setVgap(10);
+        gridPane.setAlignment(Pos.CENTER_LEFT);
+
+        Label tgiResultLabel = new Label("TGI Result: " + String.format("%.2f", tgiOut) + "%");
+        Label conditionLabel = new Label("Condition: " + condition);
+        Label recommendationLabel = new Label("Recommended Course of Action: " + recommendedCourse);
+
+        gridPane.add(tgiResultLabel, 0, 0);
+        gridPane.add(conditionLabel, 0, 1);
+        gridPane.add(recommendationLabel, 0, 2);
+
+        resultPane.setCenter(gridPane);
+        Scene resultScene = new Scene(resultPane, 400, 200);
+        resultStage.setScene(resultScene);
+        resultStage.setTitle("TGI Result");
+        resultStage.show();
     }
 
-    private double calculateCost(int[] factors, int t) {
-        // Cost calculation with additional term t^2
-        return calculateOutput(factors[0], factors[1], factors[2], factors[3], factors[4], 
-                               factors[5], factors[6], factors[7], factors[8]) + Math.pow(t, 2);
-    }
-
-    private double linearScale(double x, double newMin, double newMax, double oldMin, double oldMax) {
-        // Apply linear scaling to map raw output to the desired range
-        return ((x - oldMin) / (oldMax - oldMin)) * (newMax - newMin) + newMin;
-    }
-
-    private String classifyRating(double rating) {
-        if (rating <= 2) {
-            return "Perfect";
-        } else if (rating < 4) {
-            return "Fair";
-        } else {
-            return "Poor";
-        }
-    }
-
-    private void showOutputWindow(Stage primaryStage, double rawOutput, double rating, String classification, 
-                                  double costMonth1, double costMonth6, double costMonth12) {
-        // Create a new window to display the output
-        outputStage = new Stage();
-        BorderPane outputRoot = new BorderPane();
-        Scene outputScene = new Scene(outputRoot, 400, 300);
-
-        Label headerLabel = new Label("Output");
-        headerLabel.setStyle("-fx-font-size: 18px;");
-        outputRoot.setTop(headerLabel);
-        BorderPane.setAlignment(headerLabel, Pos.CENTER);
-        BorderPane.setMargin(headerLabel, new Insets(10, 0, 10, 0));
-
-        VBox resultBox = new VBox(10);
-        resultBox.setAlignment(Pos.CENTER);
-        Label outputLabel = new Label(String.format("Output: %.2f", rawOutput));
-        Label ratingLabel = new Label(String.format("Rating: %.2f", rating));
-        Label classificationLabel = new Label(String.format("Classification: %s", classification));
-        Label costMonth1Label = new Label(String.format("Cost, Month 1: %.2f", costMonth1));
-        Label costMonth6Label = new Label(String.format("Cost, Month 6: %.2f", costMonth6));
-        Label costMonth12Label = new Label(String.format("Cost, Month 12: %.2f", costMonth12));
-
-        resultBox.getChildren().addAll(outputLabel, ratingLabel, classificationLabel, costMonth1Label, costMonth6Label, costMonth12Label);
-        outputRoot.setCenter(resultBox);
-
-        outputStage.setScene(outputScene);
-        outputStage.setTitle("Output");
-        outputStage.show();
-    }
-
-    private void showBarGraph(Stage primaryStage, int[] factors) {
-        // Create a new window for the bar graph
-        Stage graphStage = new Stage();
-        BorderPane graphRoot = new BorderPane();
-        Scene graphScene = new Scene(graphRoot, 600, 400);
-
-        // Create X and Y axes
-        CategoryAxis xAxis = new CategoryAxis();
-        xAxis.setLabel("Month");
-        xAxis.getCategories().addAll("0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12");
-
-        // Calculate the maximum cost from month 0 to month 12
-        double maxCost = 0;
-        for (int t = 0; t <= 12; t++) {
-            double cost = calculateCost(factors, t);
-            if (cost > maxCost) {
-                maxCost = cost;
+    private void configureInputField(TextField textField) {
+        textField.textProperty().addListener((observable, oldValue, newValue) -> {
+            if (!newValue.matches("\\d*")) {
+                textField.setText(newValue.replaceAll("[^\\d]", ""));
             }
-        }
+        });
+    }
 
-        // Round the maxCost up to the next logical increment (e.g., 30, 60, 90, etc.)
-        double yAxisUpperBound = Math.ceil(maxCost / 30) * 30;  // Round up to nearest 30
-
-        // Create Y axis with dynamic upper bound
-        NumberAxis yAxis = new NumberAxis(0, yAxisUpperBound, 30);
-        yAxis.setLabel("Cost");
-
-        // Create BarChart
-        BarChart<String, Number> barChart = new BarChart<>(xAxis, yAxis);
-        barChart.setTitle("Cost Over 12 Months");
-
-        // Create a series for cost values
-        XYChart.Series<String, Number> series = new XYChart.Series<>();
-        series.setName("Cost");
-
-        for (int t = 0; t <= 12; t++) {
-            double cost = calculateCost(factors, t);
-            series.getData().add(new XYChart.Data<>(String.valueOf(t), cost));
-        }
-
-        barChart.getData().add(series);
-        graphRoot.setCenter(barChart);
-
-        graphStage.setScene(graphScene);
-        graphStage.setTitle("Cost Bar Graph");
-        graphStage.show();
+    private void configurePositiveInputField(TextField textField) {
+        textField.textProperty().addListener((observable, oldValue, newValue) -> {
+            if (!newValue.matches("\\d*")) {
+                textField.setText(newValue.replaceAll("[^\\d]", ""));
+            }
+        });
     }
 
     public static void main(String[] args) {
