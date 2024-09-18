@@ -12,10 +12,6 @@ import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
-import javafx.scene.chart.CategoryAxis;
-import javafx.scene.chart.NumberAxis;
-import javafx.scene.chart.BarChart;
-import javafx.scene.chart.XYChart;
 
 public class MenuSelectionGUI extends Application {
 
@@ -30,15 +26,38 @@ public class MenuSelectionGUI extends Application {
 
     private String userChoice = "None";  
 
-    public void defaultTGI(float l, float a, float g, float allowance) {
-        if (allowance <= 0) {
-            System.out.print("System Error");
-            System.exit(0);
+    public void defaultTGI(float l, float a, float g, float allowanceL, float allowanceA, float allowanceG  ) {
+        float exceedL = l - allowanceL > 0 ? l - allowanceL : 0;
+        float exceedA = a - allowanceA > 0 ? a - allowanceA : 0;
+        float exceedG = g - allowanceG > 0 ? g - allowanceG : 0;
+
+        tgiOut = 100 - ((l + a + g) / (allowanceL + allowanceA + allowanceG)) * 100;
+
+        if (tgiOut < 20) {
+            condition = assignments[0];
+            recommendedCourse = recommendation[0];
+        } else if (tgiOut >= 20 && tgiOut < 40) {
+            condition = assignments[1];
+            recommendedCourse = recommendation[1];
+        } else if (tgiOut >= 40 && tgiOut < 60) {
+            condition = assignments[2];
+            recommendedCourse = recommendation[2];
+        } else if (tgiOut >= 60 && tgiOut < 80) {
+            condition = assignments[3];
+            recommendedCourse = recommendation[3];
+        } else if (tgiOut >= 80 && tgiOut <= 100) {
+            condition = assignments[4];
+            recommendedCourse = recommendation[4];
+        } else {
+            System.out.print("System error");
         }
 
-        tgiOut = 100 - ((l + a + g) / allowance) * 100;
-
-        if (tgiOut >= 0 && tgiOut < 20) {
+        openResultWindow(exceedL, exceedA, exceedG);  // Show exceedances in the result window
+    }
+    
+    public void varTGIone (float l, float a, float g, float WL, float WA, float WG) {
+    	tgiOut = 100 - ((WL*l+WA*a+WG*g)/1) * 100;
+    	if (tgiOut >= 0 && tgiOut < 20) {
             condition = assignments[0];
             recommendedCourse = recommendation[0];
         } else if (tgiOut >= 20 && tgiOut < 40) {
@@ -57,9 +76,44 @@ public class MenuSelectionGUI extends Application {
             System.out.print("System error");
         }
     }
-
+    
     @Override
     public void start(Stage primaryStage) {
+        BorderPane root = new BorderPane();
+        root.setPadding(new Insets(10));
+
+        VBox optionsBox = new VBox(10);
+        optionsBox.setPadding(new Insets(10));
+        optionsBox.setAlignment(Pos.CENTER_LEFT);
+
+        Label instructionLabel = new Label("Select a Category:");
+        optionsBox.getChildren().add(instructionLabel);
+
+        ToggleGroup categoryGroup = new ToggleGroup();
+
+        RadioButton railGeometryOption = new RadioButton("Rail Geometry");
+        railGeometryOption.setToggleGroup(categoryGroup);
+        railGeometryOption.setOnAction(e -> openMenuSelection(primaryStage));
+
+        RadioButton sleeperOption = new RadioButton("Sleeper");
+        sleeperOption.setToggleGroup(categoryGroup);
+        sleeperOption.setOnAction(e -> primaryStage.close());
+
+        RadioButton railOption = new RadioButton("Rail");
+        railOption.setToggleGroup(categoryGroup);
+        railOption.setOnAction(e -> primaryStage.close());
+
+        optionsBox.getChildren().addAll(railGeometryOption, sleeperOption, railOption);
+
+        root.setCenter(optionsBox);
+
+        Scene scene = new Scene(root, 300, 200);
+        primaryStage.setScene(scene);
+        primaryStage.setTitle("Select a Category");
+        primaryStage.show();
+    }
+
+    private void openMenuSelection(Stage primaryStage) {
         BorderPane root = new BorderPane();
         root.setPadding(new Insets(10));
 
@@ -90,11 +144,10 @@ public class MenuSelectionGUI extends Application {
 
         Button enterButton = new Button("Enter");
         enterButton.setOnAction(e -> {
-            System.out.println("User Choice: " + userChoice);  
+            System.out.println("User Choice: " + userChoice);
             if ("Default".equals(userChoice)) {
                 openDefaultWindow();  
-            }
-            if (!userChoice.equals("Default")) {
+            } else {
                 primaryStage.close(); 
             }
         });
@@ -107,7 +160,6 @@ public class MenuSelectionGUI extends Application {
         Scene scene = new Scene(root, 300, 250);
         primaryStage.setScene(scene);
         primaryStage.setTitle("Menu Selection");
-        primaryStage.show();
     }
 
     private void openDefaultWindow() {
@@ -136,9 +188,17 @@ public class MenuSelectionGUI extends Application {
         TextField gaugeInput = new TextField();
         configureInputField(gaugeInput);
 
-        Label allowanceLabel = new Label("Allowance: ");
-        TextField allowanceInput = new TextField();
-        configurePositiveInputField(allowanceInput);  
+        Label allowanceLLabel = new Label("Allowance Longitudinal: ");
+        TextField allowanceLInput = new TextField();
+        configurePositiveInputField(allowanceLInput);
+
+        Label allowanceALabel = new Label("Allowance Alignment: ");
+        TextField allowanceAInput = new TextField();
+        configurePositiveInputField(allowanceAInput);
+
+        Label allowanceGLabel = new Label("Allowance Gauge: ");
+        TextField allowanceGInput = new TextField();
+        configurePositiveInputField(allowanceGInput);
 
         longitudinalInput.setOnKeyPressed(e -> {
             if (e.getCode() == KeyCode.ENTER) {
@@ -154,13 +214,19 @@ public class MenuSelectionGUI extends Application {
 
         gaugeInput.setOnKeyPressed(e -> {
             if (e.getCode() == KeyCode.ENTER) {
-                allowanceInput.requestFocus();  
+                allowanceLInput.requestFocus();  
             }
         });
 
-        allowanceInput.setOnKeyPressed(e -> {
+        allowanceLInput.setOnKeyPressed(e -> {
             if (e.getCode() == KeyCode.ENTER) {
-                allowanceInput.getParent().requestFocus();  
+                allowanceAInput.requestFocus();  
+            }
+        });
+
+        allowanceAInput.setOnKeyPressed(e -> {
+            if (e.getCode() == KeyCode.ENTER) {
+                allowanceGInput.requestFocus();  
             }
         });
 
@@ -171,8 +237,12 @@ public class MenuSelectionGUI extends Application {
         gridPane.add(alignmentInput, 1, 2);
         gridPane.add(gaugeLabel, 0, 3);
         gridPane.add(gaugeInput, 1, 3);
-        gridPane.add(allowanceLabel, 0, 4);
-        gridPane.add(allowanceInput, 1, 4);
+        gridPane.add(allowanceLLabel, 0, 4);
+        gridPane.add(allowanceLInput, 1, 4);
+        gridPane.add(allowanceALabel, 0, 5);
+        gridPane.add(allowanceAInput, 1, 5);
+        gridPane.add(allowanceGLabel, 0, 6);
+        gridPane.add(allowanceGInput, 1, 6);
 
         pane.setCenter(gridPane);
 
@@ -181,15 +251,12 @@ public class MenuSelectionGUI extends Application {
             float l = Float.parseFloat(longitudinalInput.getText());
             float a = Float.parseFloat(alignmentInput.getText());
             float g = Float.parseFloat(gaugeInput.getText());
-            float allowance = Float.parseFloat(allowanceInput.getText());
+            float allowanceL = Float.parseFloat(allowanceLInput.getText());
+            float allowanceA = Float.parseFloat(allowanceAInput.getText());
+            float allowanceG = Float.parseFloat(allowanceGInput.getText());
 
-            defaultTGI(l, a, g, allowance);
-
-            if (resultStage != null) {
-                resultStage.close();
-            }
-
-            openResultWindow();
+            defaultTGI(l, a, g, allowanceL, allowanceA, allowanceG);
+            defaultWindow.close();  
         });
 
         BorderPane bottomPane = new BorderPane();
@@ -197,13 +264,21 @@ public class MenuSelectionGUI extends Application {
         BorderPane.setMargin(enterButton, new Insets(10));
         pane.setBottom(bottomPane);
 
-        Scene scene = new Scene(pane, 900, 400);
+        Scene scene = new Scene(pane, 400, 300);
         defaultWindow.setScene(scene);
-        defaultWindow.setTitle("Deviation Input");
+        defaultWindow.setTitle("Default Deviation Input");
         defaultWindow.show();
     }
 
-    private void openResultWindow() {
+    private void configureInputField(TextField textField) {
+        textField.setPromptText("Enter a positive number");
+    }
+
+    private void configurePositiveInputField(TextField textField) {
+        textField.setPromptText("Enter a positive number");
+    }
+
+    private void openResultWindow(float exceedL, float exceedA, float exceedG) {
         resultStage = new Stage();
         BorderPane resultPane = new BorderPane();
         resultPane.setPadding(new Insets(10));
@@ -218,31 +293,22 @@ public class MenuSelectionGUI extends Application {
         Label conditionLabel = new Label("Condition: " + condition);
         Label recommendationLabel = new Label("Recommended Course of Action: " + recommendedCourse);
 
+        Label exceedLLabel = new Label("Longitudinal deviation over max: " + String.format("%.2f", exceedL));
+        Label exceedALabel = new Label("Alignment deviation over max: " + String.format("%.2f", exceedA));
+        Label exceedGLabel = new Label("Gauge deviation over max: " + String.format("%.2f", exceedG));
+
         gridPane.add(tgiResultLabel, 0, 0);
         gridPane.add(conditionLabel, 0, 1);
         gridPane.add(recommendationLabel, 0, 2);
+        gridPane.add(exceedLLabel, 0, 3);
+        gridPane.add(exceedALabel, 0, 4);
+        gridPane.add(exceedGLabel, 0, 5);
 
         resultPane.setCenter(gridPane);
-        Scene resultScene = new Scene(resultPane, 400, 200);
+        Scene resultScene = new Scene(resultPane, 400, 300);
         resultStage.setScene(resultScene);
         resultStage.setTitle("TGI Result");
         resultStage.show();
-    }
-
-    private void configureInputField(TextField textField) {
-        textField.textProperty().addListener((observable, oldValue, newValue) -> {
-            if (!newValue.matches("\\d*")) {
-                textField.setText(newValue.replaceAll("[^\\d]", ""));
-            }
-        });
-    }
-
-    private void configurePositiveInputField(TextField textField) {
-        textField.textProperty().addListener((observable, oldValue, newValue) -> {
-            if (!newValue.matches("\\d*")) {
-                textField.setText(newValue.replaceAll("[^\\d]", ""));
-            }
-        });
     }
 
     public static void main(String[] args) {
