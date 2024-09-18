@@ -67,6 +67,15 @@ public class RailGeometry {
             else if ("Variant 2".equals(userChoice)) {
             	openVarTwoWindow();
             }
+            else if ("Variant 3".equals(userChoice)) {
+            	openVarThreeWindow();
+            }
+            else if ("Variant 4".equals(userChoice)) {
+            	openVarFourWindow();
+            }
+            else if ("Variant 5".equals(userChoice)) {
+            	openVarFiveWindow();
+            }
             else {
                 primaryStage.close();
             }
@@ -219,19 +228,19 @@ public class RailGeometry {
         Label WLLabel = new Label("WL: ");
         TextField WLInput = new TextField();
         configurePositiveInputField(WLInput);
-        configureBoundedInputField(WLInput); // New method to enforce bounds
+        configureBoundedInputField(WLInput); 
 
         Label WALabel = new Label("WA: ");
         TextField WAInput = new TextField();
         configurePositiveInputField(WAInput);
-        configureBoundedInputField(WAInput); // New method to enforce bounds
+        configureBoundedInputField(WAInput); 
 
         Label WGLabel = new Label("WG: ");
         TextField WGInput = new TextField();
         configurePositiveInputField(WGInput);
-        configureBoundedInputField(WGInput); // New method to enforce bounds
+        configureBoundedInputField(WGInput); 
 
-        // Navigation between input fields
+        
         longitudinalInput.setOnKeyPressed(e -> {
             if (e.getCode() == KeyCode.ENTER) {
                 alignmentInput.requestFocus();
@@ -370,8 +379,220 @@ public class RailGeometry {
 
         Scene scene = new Scene(pane, 400, 300);
         VarTwoWindow.setScene(scene);
-        VarTwoWindow.setTitle("Default Deviation Input");
+        VarTwoWindow.setTitle("Variation 2 Deviation Input");
         VarTwoWindow.show();
+    }
+    
+    private void openVarThreeWindow() {
+        Stage VarTwoWindow = new Stage();
+        BorderPane pane = new BorderPane();
+        pane.setPadding(new Insets(10));
+
+        GridPane gridPane = new GridPane();
+        gridPane.setPadding(new Insets(10));
+        gridPane.setHgap(10);
+        gridPane.setVgap(10);
+        gridPane.setAlignment(Pos.CENTER_LEFT);
+
+        Label notice = new Label("All measurements in mm");
+        notice.setStyle("-fx-font-weight: bold;");
+
+        Label stdLabel = new Label("Standard Deviation: ");
+        TextField stdInput = new TextField();
+        configureInputField(stdInput);
+
+        Label stdvLabel = new Label("80th Percentile Deviation: ");
+        TextField stdvInput = new TextField();
+        configureInputField(stdvInput);
+
+        stdInput.setOnKeyPressed(e -> {
+            if (e.getCode() == KeyCode.ENTER) {
+                stdvInput.requestFocus();
+            }
+        });
+
+        stdvInput.setOnKeyPressed(e -> {
+            if (e.getCode() == KeyCode.ENTER) {
+                stdvInput.requestFocus();
+            }
+        });
+
+        gridPane.add(notice, 0, 0);
+        gridPane.add(stdLabel, 0, 1);
+        gridPane.add(stdInput, 1, 1);
+        gridPane.add(stdvLabel, 0, 2);
+        gridPane.add(stdvInput, 1, 2);
+        
+        pane.setCenter(gridPane);
+
+        Button enterButton = new Button("Enter");
+        enterButton.setOnAction(e -> {
+            float l = Float.parseFloat(stdInput.getText());
+            float a = Float.parseFloat(stdvInput.getText());
+
+            varTGIthree(l, a);
+            VarTwoWindow.close();
+        });
+
+        BorderPane bottomPane = new BorderPane();
+        bottomPane.setRight(enterButton);
+        BorderPane.setMargin(enterButton, new Insets(10));
+        pane.setBottom(bottomPane);
+
+        Scene scene = new Scene(pane, 400, 300);
+        VarTwoWindow.setScene(scene);
+        VarTwoWindow.setTitle("Variation 3 Input");
+        VarTwoWindow.show();
+    }
+    
+    private void openVarFourWindow() {
+        Stage VarTwoWindow = new Stage();
+        BorderPane pane = new BorderPane();
+        pane.setPadding(new Insets(10));
+
+        GridPane gridPane = new GridPane();
+        gridPane.setPadding(new Insets(10));
+        gridPane.setHgap(10);
+        gridPane.setVgap(10);
+        gridPane.setAlignment(Pos.CENTER_LEFT);
+
+        Label notice = new Label("All measurements in mm");
+        notice.setStyle("-fx-font-weight: bold;");
+
+        Label stdLabel = new Label("∑l: ");
+        TextField stdInput = new TextField();
+        configureInputField(stdInput);
+
+        Label stdvLabel = new Label("L: ");
+        TextField stdvInput = new TextField();
+        configureInputField(stdvInput);
+
+        stdInput.setOnKeyPressed(e -> {
+            if (e.getCode() == KeyCode.ENTER) {
+                stdvInput.requestFocus();
+            }
+        });
+
+        stdvInput.setOnKeyPressed(e -> {
+            if (e.getCode() == KeyCode.ENTER) {
+                stdvInput.requestFocus();
+            }
+        });
+
+        gridPane.add(notice, 0, 0);
+        gridPane.add(stdLabel, 0, 1);
+        gridPane.add(stdInput, 1, 1);
+        gridPane.add(stdvLabel, 0, 2);
+        gridPane.add(stdvInput, 1, 2);
+        
+        pane.setCenter(gridPane);
+
+        Button enterButton = new Button("Enter");
+        enterButton.setOnAction(e -> {
+            float l = Float.parseFloat(stdInput.getText());
+            float a = Float.parseFloat(stdvInput.getText());
+
+            varTGIfour(l, a);
+            VarTwoWindow.close();
+        });
+
+        BorderPane bottomPane = new BorderPane();
+        bottomPane.setRight(enterButton);
+        BorderPane.setMargin(enterButton, new Insets(10));
+        pane.setBottom(bottomPane);
+
+        Scene scene = new Scene(pane, 400, 300);
+        VarTwoWindow.setScene(scene);
+        VarTwoWindow.setTitle("Variation 4 Input");
+        VarTwoWindow.show();
+    }
+    
+    private void openVarFiveWindow() {
+        Stage VarOneWindow = new Stage();
+        BorderPane pane = new BorderPane();
+        pane.setPadding(new Insets(10));
+
+        GridPane gridPane = new GridPane();
+        gridPane.setPadding(new Insets(10));
+        gridPane.setHgap(10);
+        gridPane.setVgap(10);
+        gridPane.setAlignment(Pos.CENTER_LEFT);
+
+        Label notice = new Label("All measurements in mm");
+        notice.setStyle("-fx-font-weight: bold;");
+
+        Label longitudinalLabel = new Label("σ_H: ");
+        TextField longitudinalInput = new TextField();
+        configureInputField(longitudinalInput);
+
+        Label alignmentLabel = new Label("σ_HLim: ");
+        TextField alignmentInput = new TextField();
+        configureInputField(alignmentInput);
+
+        Label gaugeLabel = new Label("σ_S: ");
+        TextField gaugeInput = new TextField();
+        configureInputField(gaugeInput);
+
+        Label WLLabel = new Label("σ_lLim: ");
+        TextField WLInput = new TextField();
+        configurePositiveInputField(WLInput); 
+        
+        longitudinalInput.setOnKeyPressed(e -> {
+            if (e.getCode() == KeyCode.ENTER) {
+                alignmentInput.requestFocus();
+            }
+        });
+
+        alignmentInput.setOnKeyPressed(e -> {
+            if (e.getCode() == KeyCode.ENTER) {
+                gaugeInput.requestFocus();
+            }
+        });
+
+        gaugeInput.setOnKeyPressed(e -> {
+            if (e.getCode() == KeyCode.ENTER) {
+                WLInput.requestFocus();
+            }
+        });
+
+        WLInput.setOnKeyPressed(e -> {
+            if (e.getCode() == KeyCode.ENTER) {
+                WLInput.requestFocus();
+            }
+        });
+
+        gridPane.add(notice, 0, 0);
+        gridPane.add(longitudinalLabel, 0, 1);
+        gridPane.add(longitudinalInput, 1, 1);
+        gridPane.add(alignmentLabel, 0, 2);
+        gridPane.add(alignmentInput, 1, 2);
+        gridPane.add(gaugeLabel, 0, 3);
+        gridPane.add(gaugeInput, 1, 3);
+        gridPane.add(WLLabel, 0, 4);
+        gridPane.add(WLInput, 1, 4);
+
+        pane.setCenter(gridPane);
+
+        Button enterButton = new Button("Enter");
+        enterButton.setOnAction(e -> {
+            float l = Float.parseFloat(longitudinalInput.getText());
+            float a = Float.parseFloat(alignmentInput.getText());
+            float g = Float.parseFloat(gaugeInput.getText());
+            float WL = Float.parseFloat(WLInput.getText());
+
+            varTGIfive(l, a, g, WL);
+            VarOneWindow.close();
+        });
+
+        BorderPane bottomPane = new BorderPane();
+        bottomPane.setRight(enterButton);
+        BorderPane.setMargin(enterButton, new Insets(10));
+        pane.setBottom(bottomPane);
+
+        Scene scene = new Scene(pane, 400, 300);
+        VarOneWindow.setScene(scene);
+        VarOneWindow.setTitle("Variation 5 Deviation Input");
+        VarOneWindow.show();
     }
 
     private void configureBoundedInputField(TextField textField) {
@@ -404,6 +625,7 @@ public class RailGeometry {
         float exceedG = g - allowanceG > 0 ? g - allowanceG : 0;
 
         tgiOut = 100 - ((l + a + g) / (allowanceL + allowanceA + allowanceG)) * 100;
+        tgiOut = Math.round(tgiOut);
         if (tgiOut < 0) {
             condition = "Very Poor";
             recommendedCourse = "Immediate shutdown or major repairs required";
@@ -440,6 +662,7 @@ public class RailGeometry {
     	float factor = num/10; 
     	float detract = factor * 100;
     	tgiOut = 100 - detract;
+    	tgiOut = Math.round(tgiOut);
     	if (tgiOut < 0) {
             condition = "Very Poor";
             recommendedCourse = "Immediate shutdown or major repairs required";
@@ -507,6 +730,81 @@ public class RailGeometry {
         resultBox.getChildren().add(new Label("TGI Output: " + tgiOut));
         resultBox.getChildren().add(new Label("Condition: " + condition));
         resultBox.getChildren().add(new Label("Recommended Course of Action: " + recommendedCourse));
+
+        resultPane.setCenter(resultBox);
+
+        Scene resultScene = new Scene(resultPane, 400, 250);
+        resultStage.setScene(resultScene);
+        resultStage.setTitle("Results");
+        resultStage.show();
+    }
+    
+    private void varTGIthree (float stddev, float eightystddev) {
+    	double factor = stddev/eightystddev; 
+    	tgiOut =(float) (10 * Math.pow(0.675, factor));
+    	
+        resultStage = new Stage();
+        BorderPane resultPane = new BorderPane();
+        resultPane.setPadding(new Insets(10));
+
+        VBox resultBox = new VBox(10);
+        resultBox.setPadding(new Insets(10));
+        resultBox.setAlignment(Pos.CENTER_LEFT);
+
+        resultBox.getChildren().add(new Label("TGI Output: " + tgiOut));
+
+        resultPane.setCenter(resultBox);
+
+        Scene resultScene = new Scene(resultPane, 400, 250);
+        resultStage.setScene(resultScene);
+        resultStage.setTitle("Results");
+        resultStage.show();
+    }
+    
+    private void varTGIfour (float facOne, float facTwo) {
+    	float factor = facOne/facTwo; 
+    	tgiOut = 100 * factor;
+    	
+        resultStage = new Stage();
+        BorderPane resultPane = new BorderPane();
+        resultPane.setPadding(new Insets(10));
+
+        VBox resultBox = new VBox(10);
+        resultBox.setPadding(new Insets(10));
+        resultBox.setAlignment(Pos.CENTER_LEFT);
+
+        resultBox.getChildren().add(new Label("K Output: " + tgiOut));
+
+        resultPane.setCenter(resultBox);
+
+        Scene resultScene = new Scene(resultPane, 400, 250);
+        resultStage.setScene(resultScene);
+        resultStage.setTitle("Results");
+        resultStage.show();
+    }
+    
+    private void varTGIfive (float H, float Hlim, float S, float Slim) {
+    	float normalizedH = H / Hlim;
+        float normalizedS = 2 * (S / Slim);
+        
+        
+        float totalDeviation = normalizedH + normalizedS;
+        
+        
+        int roundedDeviation = (int) Math.ceil(totalDeviation);
+        
+        
+        tgiOut = 150 - (100.0f / 3.0f) * roundedDeviation;
+    	
+        resultStage = new Stage();
+        BorderPane resultPane = new BorderPane();
+        resultPane.setPadding(new Insets(10));
+
+        VBox resultBox = new VBox(10);
+        resultBox.setPadding(new Insets(10));
+        resultBox.setAlignment(Pos.CENTER_LEFT);
+
+        resultBox.getChildren().add(new Label("QI Output: " + tgiOut));
 
         resultPane.setCenter(resultBox);
 
