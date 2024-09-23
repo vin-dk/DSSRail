@@ -1,6 +1,7 @@
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
+import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.RadioButton;
@@ -25,6 +26,53 @@ public class RailGeometry {
    
 
     private String userChoice = "None";
+    
+    public static double stdv(float[] values) { // helper method for calculating standard deviation 
+        int n = values.length;
+        if (n == 0) {
+            throw new IllegalArgumentException("Array must have at least one element.");
+        }
+        
+        double mean = 0;
+        for (float value : values) {
+            mean += value;
+        }
+        mean /= n;
+        
+        
+        double sumSquaredDiffs = 0;
+        for (float value : values) {
+            sumSquaredDiffs += Math.pow(value - mean, 2);
+        }
+
+        double stdDev = Math.sqrt(sumSquaredDiffs / (n - 1));
+
+        return stdDev;
+    }
+    
+ // method to calculate the average standard deviation (σH)(assumes implementation as described) 
+    public static double genH(float[] HLEFT, float[] HRIGHT) {
+        double stdDevLeft = stdv(HLEFT);
+
+        double stdDevRight = stdv(HRIGHT);
+
+        double sigmaH = (stdDevLeft + stdDevRight) / 2;
+
+        return sigmaH;
+    }
+    
+    public static double genS(float[] crossLevel, float[] gauge, float[] horizontalDeviation) { // method calculating stdv for s
+        if (crossLevel.length != gauge.length || crossLevel.length != horizontalDeviation.length) {
+            throw new IllegalArgumentException("All arrays must be of the same size.");
+        }
+
+        float[] Si = new float[crossLevel.length];
+        for (int i = 0; i < crossLevel.length; i++) {
+            Si[i] = crossLevel[i] * gauge[i] * horizontalDeviation[i];
+        }
+
+        return stdv(Si);
+    }
 
     public void openMenuSelection(Stage primaryStage) {
         BorderPane root = new BorderPane();
@@ -459,13 +507,29 @@ public class RailGeometry {
         Label notice = new Label("All measurements in mm");
         notice.setStyle("-fx-font-weight: bold;");
 
-        Label stdLabel = new Label("∑l: ");
+        Label stdLabel = new Label("∑l (longitudinal): ");
         TextField stdInput = new TextField();
         configureInputField(stdInput);
 
-        Label stdvLabel = new Label("L: ");
+        Label stdvLabel = new Label("L (longitudinal): ");
         TextField stdvInput = new TextField();
         configureInputField(stdvInput);
+        
+        Label std2Label = new Label("∑l (alignment): ");
+        TextField std2Input = new TextField();
+        configureInputField(std2Input);
+
+        Label stdv2Label = new Label("L (alignment): ");
+        TextField stdv2Input = new TextField();
+        configureInputField(stdv2Input);
+        
+        Label std3Label = new Label("∑l (gauge): ");
+        TextField std3Input = new TextField();
+        configureInputField(std3Input);
+
+        Label stdv3Label = new Label("L (gauge): ");
+        TextField stdv3Input = new TextField();
+        configureInputField(stdv3Input);
 
         stdInput.setOnKeyPressed(e -> {
             if (e.getCode() == KeyCode.ENTER) {
@@ -475,7 +539,31 @@ public class RailGeometry {
 
         stdvInput.setOnKeyPressed(e -> {
             if (e.getCode() == KeyCode.ENTER) {
-                stdvInput.requestFocus();
+                std2Input.requestFocus();
+            }
+        });
+        
+        std2Input.setOnKeyPressed(e -> {
+            if (e.getCode() == KeyCode.ENTER) {
+                stdv2Input.requestFocus();
+            }
+        });
+        
+        stdv2Input.setOnKeyPressed(e -> {
+            if (e.getCode() == KeyCode.ENTER) {
+                std3Input.requestFocus();
+            }
+        });
+        
+        std3Input.setOnKeyPressed(e -> {
+            if (e.getCode() == KeyCode.ENTER) {
+                stdv3Input.requestFocus();
+            }
+        });
+        
+        stdv3Input.setOnKeyPressed(e -> {
+            if (e.getCode() == KeyCode.ENTER) {
+                stdv3Input.requestFocus();
             }
         });
 
@@ -484,6 +572,14 @@ public class RailGeometry {
         gridPane.add(stdInput, 1, 1);
         gridPane.add(stdvLabel, 0, 2);
         gridPane.add(stdvInput, 1, 2);
+        gridPane.add(std2Label, 0, 3);
+        gridPane.add(std2Input, 1, 3);
+        gridPane.add(stdv2Label, 0, 4);
+        gridPane.add(stdv2Input, 1, 4);
+        gridPane.add(std3Label, 0, 5);
+        gridPane.add(std3Input, 1, 5);
+        gridPane.add(stdv3Label, 0, 6);
+        gridPane.add(stdv3Input, 1, 6);
         
         pane.setCenter(gridPane);
 
@@ -491,8 +587,12 @@ public class RailGeometry {
         enterButton.setOnAction(e -> {
             float l = Float.parseFloat(stdInput.getText());
             float a = Float.parseFloat(stdvInput.getText());
+            float l2 = Float.parseFloat(std2Input.getText());
+            float a2 = Float.parseFloat(stdv2Input.getText());
+            float l3 = Float.parseFloat(std3Input.getText());
+            float a3 = Float.parseFloat(stdv3Input.getText());
 
-            varTGIfour(l, a);
+            varTGIfour(l, a, l2, a2, l3, a3);
             VarTwoWindow.close();
         });
 
@@ -505,10 +605,10 @@ public class RailGeometry {
         VarTwoWindow.setScene(scene);
         VarTwoWindow.setTitle("Variation 4 Input");
         VarTwoWindow.show();
-    }
+    } 
     
     private void openVarFiveWindow() {
-        Stage VarOneWindow = new Stage();
+        Stage varFiveWindow = new Stage();
         BorderPane pane = new BorderPane();
         pane.setPadding(new Insets(10));
 
@@ -521,67 +621,77 @@ public class RailGeometry {
         Label notice = new Label("All measurements in mm");
         notice.setStyle("-fx-font-weight: bold;");
 
-        Label longitudinalLabel = new Label("σ_H: ");
-        TextField longitudinalInput = new TextField();
-        configureInputField(longitudinalInput);
-
-        Label alignmentLabel = new Label("σ_HLim: ");
-        TextField alignmentInput = new TextField();
-        configureInputField(alignmentInput);
-
-        Label gaugeLabel = new Label("σ_S: ");
-        TextField gaugeInput = new TextField();
-        configureInputField(gaugeInput);
-
-        Label WLLabel = new Label("σ_lLim: ");
-        TextField WLInput = new TextField();
-        configurePositiveInputField(WLInput); 
+        // Input fields for HLeft, HRight, Cross Levels, Gauges, and Horizontal Deviations
+        Label hLeftLabel = new Label("H Left (Comma Separated list): ");
+        TextField hLeftInput = new TextField();
         
-        longitudinalInput.setOnKeyPressed(e -> {
-            if (e.getCode() == KeyCode.ENTER) {
-                alignmentInput.requestFocus();
-            }
-        });
+        Label hRightLabel = new Label("H Right (Comma Separated list): ");
+        TextField hRightInput = new TextField();
 
-        alignmentInput.setOnKeyPressed(e -> {
-            if (e.getCode() == KeyCode.ENTER) {
-                gaugeInput.requestFocus();
-            }
-        });
+        Label crossLevelsLabel = new Label("Cross Levels (Comma Separated list): ");
+        TextField crossLevelsInput = new TextField();
 
-        gaugeInput.setOnKeyPressed(e -> {
-            if (e.getCode() == KeyCode.ENTER) {
-                WLInput.requestFocus();
-            }
-        });
+        Label gaugesLabel = new Label("Gauges (Comma Separated list): ");
+        TextField gaugesInput = new TextField();
 
-        WLInput.setOnKeyPressed(e -> {
-            if (e.getCode() == KeyCode.ENTER) {
-                WLInput.requestFocus();
-            }
-        });
+        Label horizontalDeviationsLabel = new Label("Horizontal Deviations (Comma Separated list): ");
+        TextField horizontalDeviationsInput = new TextField();
+        
+        Label HLimLabel = new Label("σ_HLim: ");
+        TextField HLimInput = new TextField();
+        configureInputField(HLimInput);
+        
+        Label sLimLabel = new Label("σ_sLim: ");
+        TextField sLimInput = new TextField();
+        configurePositiveInputField(sLimInput); 
 
+        // Add labels and inputs to the grid pane
         gridPane.add(notice, 0, 0);
-        gridPane.add(longitudinalLabel, 0, 1);
-        gridPane.add(longitudinalInput, 1, 1);
-        gridPane.add(alignmentLabel, 0, 2);
-        gridPane.add(alignmentInput, 1, 2);
-        gridPane.add(gaugeLabel, 0, 3);
-        gridPane.add(gaugeInput, 1, 3);
-        gridPane.add(WLLabel, 0, 4);
-        gridPane.add(WLInput, 1, 4);
+        gridPane.add(hLeftLabel, 0, 1);
+        gridPane.add(hLeftInput, 1, 1);
+        gridPane.add(hRightLabel, 0, 2);
+        gridPane.add(hRightInput, 1, 2);
+        gridPane.add(crossLevelsLabel, 0, 3);
+        gridPane.add(crossLevelsInput, 1, 3);
+        gridPane.add(gaugesLabel, 0, 4);
+        gridPane.add(gaugesInput, 1, 4);
+        gridPane.add(horizontalDeviationsLabel, 0, 5);
+        gridPane.add(horizontalDeviationsInput, 1, 5);
+        gridPane.add(HLimLabel, 0, 6);
+        gridPane.add(HLimInput, 1, 6);
+        gridPane.add(sLimLabel, 0, 7);
+        gridPane.add(sLimInput, 1, 7);
 
         pane.setCenter(gridPane);
 
         Button enterButton = new Button("Enter");
         enterButton.setOnAction(e -> {
-            float l = Float.parseFloat(longitudinalInput.getText());
-            float a = Float.parseFloat(alignmentInput.getText());
-            float g = Float.parseFloat(gaugeInput.getText());
-            float WL = Float.parseFloat(WLInput.getText());
+            try {
+                // Parse inputs to float arrays
+                float[] HLEFT = parseInputToFloatArray(hLeftInput.getText());
+                float[] HRIGHT = parseInputToFloatArray(hRightInput.getText());
+                float[] crossLevels = parseInputToFloatArray(crossLevelsInput.getText());
+                float[] gauges = parseInputToFloatArray(gaugesInput.getText());
+                float[] horizontalDeviations = parseInputToFloatArray(horizontalDeviationsInput.getText());
 
-            varTGIfive(l, a, g, WL);
-            VarOneWindow.close();
+                // Calculate σH and σs
+                double sigmaH = genH(HLEFT, HRIGHT);
+                double sigmaS = genS(crossLevels, gauges, horizontalDeviations);
+
+                // Assuming you have σ_HLim and σ_sLim inputs (add these fields as necessary)
+                float sigmaHLim = Float.parseFloat(HLimInput.getText()); // Replace with actual input field for σ_HLim
+                float sigmaSLim = Float.parseFloat(sLimInput.getText()); // Replace with actual input field for σ_sLim
+
+                // Call varTGIfive with the calculated values
+                varTGIfive((float) sigmaH, sigmaHLim, (float) sigmaS, sigmaSLim);
+                varFiveWindow.close();
+            } catch (NumberFormatException ex) {
+                // Handle number format exceptions or any other parsing errors
+                showError("Please enter valid numerical values.");
+            } catch (IllegalArgumentException ex) {
+                // Handle cases where input arrays are of different sizes
+                showError(ex.getMessage());
+            }
         });
 
         BorderPane bottomPane = new BorderPane();
@@ -589,10 +699,30 @@ public class RailGeometry {
         BorderPane.setMargin(enterButton, new Insets(10));
         pane.setBottom(bottomPane);
 
-        Scene scene = new Scene(pane, 400, 300);
-        VarOneWindow.setScene(scene);
-        VarOneWindow.setTitle("Variation 5 Deviation Input");
-        VarOneWindow.show();
+        Scene scene = new Scene(pane, 400, 400);
+        varFiveWindow.setScene(scene);
+        varFiveWindow.setTitle("Variation 5 Deviation Input");
+        varFiveWindow.show();
+    }
+
+    private float[] parseInputToFloatArray(String input) {
+        // helper function 
+        String[] stringValues = input.trim().split("\\s*,\\s*");
+        float[] floatValues = new float[stringValues.length];
+
+        for (int i = 0; i < stringValues.length; i++) {
+            floatValues[i] = Float.parseFloat(stringValues[i]);
+        }
+
+        return floatValues;
+    }
+
+    private void showError(String message) {
+        Alert alert = new Alert(Alert.AlertType.ERROR);
+        alert.setTitle("Input Error");
+        alert.setHeaderText(null);
+        alert.setContentText(message);
+        alert.showAndWait();
     }
 
     private void configureBoundedInputField(TextField textField) {
@@ -761,9 +891,15 @@ public class RailGeometry {
         resultStage.show();
     }
     
-    private void varTGIfour (float facOne, float facTwo) {
+    private void varTGIfour (float facOne, float facTwo, float facThree, float facFour, float facFive, float facSix) {
     	float factor = facOne/facTwo; 
     	tgiOut = 100 * factor;
+    	
+    	float factor2 = facThree/facFour;
+    	float tgiOut2 = 100 * factor2;
+    	
+    	float factor3 = facFive/facSix;
+    	float tgiOut3 = 100 * factor3;
     	
         resultStage = new Stage();
         BorderPane resultPane = new BorderPane();
@@ -773,7 +909,9 @@ public class RailGeometry {
         resultBox.setPadding(new Insets(10));
         resultBox.setAlignment(Pos.CENTER_LEFT);
 
-        resultBox.getChildren().add(new Label("K Output: " + tgiOut));
+        resultBox.getChildren().add(new Label("K Output (longitudinal) : " + tgiOut));
+        resultBox.getChildren().add(new Label("K Output (alignment) : " + tgiOut2));
+        resultBox.getChildren().add(new Label("K Output (gauge) : " + tgiOut3));
 
         resultPane.setCenter(resultBox);
 
