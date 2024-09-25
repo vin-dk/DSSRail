@@ -12,6 +12,9 @@ import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
+import java.util.Arrays;
+
+// 2.2.5 2.2.6 2.2.10 modify 2.2.7
 
 public class RailGeometry {
 
@@ -73,7 +76,19 @@ public class RailGeometry {
 
         return stdv(Si);
     }
+    
+    public static float calc80(float[] values) { //helper method for 80th percentile 
+        if (values == null || values.length == 0) {
+            throw new IllegalArgumentException("Array must contain at least one element.");
+        }
+        
+        Arrays.sort(values);
 
+        int index = (int) Math.ceil(0.8 * values.length) - 1; 
+
+        return values[index];
+    }
+    
     public void openMenuSelection(Stage primaryStage) {
         BorderPane root = new BorderPane();
         root.setPadding(new Insets(10));
@@ -91,7 +106,7 @@ public class RailGeometry {
         defaultOption.setToggleGroup(toggleGroup);
         defaultOption.setOnAction(e -> userChoice = "Default");
 
-        for (int i = 1; i <= 5; i++) {
+        for (int i = 1; i <= 9; i++) {
             final int variantNumber = i;
             RadioButton variantOption = new RadioButton("Variant " + variantNumber);
             variantOption.setToggleGroup(toggleGroup);
@@ -123,6 +138,18 @@ public class RailGeometry {
             }
             else if ("Variant 5".equals(userChoice)) {
             	openVarFiveWindow();
+            }
+            else if ("Variant 6".equals(userChoice)) {
+            	openVarSixWindow();
+            }
+            else if ("Variant 7".equals(userChoice)) {
+            	openVarSevenWindow();
+            }
+            else if ("Variant 8".equals(userChoice)) {
+            	openVarEightWindow();
+            }
+            else if ("Variant 9".equals(userChoice)) {
+            	openVarNineWindow();
             }
             else {
                 primaryStage.close();
@@ -493,7 +520,9 @@ public class RailGeometry {
         VarTwoWindow.show();
     }
     
-    private void openVarFourWindow() {
+    private void openVarFourWindow() { // this method determines the sum of l THAT, using var 5, is all COMPLETELY UNDER THRESHOLD, against total
+    	// length. this means that this method needs to be altered significantly, but the base process below is correct. We just need the logic
+    	// before these simple calculations are done according to var 5, which will depend on class, THIS WILL NEED TO BE MERGED 
         Stage VarTwoWindow = new Stage();
         BorderPane pane = new BorderPane();
         pane.setPadding(new Insets(10));
@@ -607,7 +636,8 @@ public class RailGeometry {
         VarTwoWindow.show();
     } 
     
-    private void openVarFiveWindow() {
+    private void openVarFiveWindow() { // this allows user input for testing. This is not realistic. The list values need to be read in 
+    	// via excel
         Stage varFiveWindow = new Stage();
         BorderPane pane = new BorderPane();
         pane.setPadding(new Insets(10));
@@ -621,7 +651,6 @@ public class RailGeometry {
         Label notice = new Label("All measurements in mm");
         notice.setStyle("-fx-font-weight: bold;");
 
-        // Input fields for HLeft, HRight, Cross Levels, Gauges, and Horizontal Deviations
         Label hLeftLabel = new Label("H Left (Comma Separated list): ");
         TextField hLeftInput = new TextField();
         
@@ -645,7 +674,6 @@ public class RailGeometry {
         TextField sLimInput = new TextField();
         configurePositiveInputField(sLimInput); 
 
-        // Add labels and inputs to the grid pane
         gridPane.add(notice, 0, 0);
         gridPane.add(hLeftLabel, 0, 1);
         gridPane.add(hLeftInput, 1, 1);
@@ -667,22 +695,19 @@ public class RailGeometry {
         Button enterButton = new Button("Enter");
         enterButton.setOnAction(e -> {
             try {
-                // Parse inputs to float arrays
                 float[] HLEFT = parseInputToFloatArray(hLeftInput.getText());
                 float[] HRIGHT = parseInputToFloatArray(hRightInput.getText());
                 float[] crossLevels = parseInputToFloatArray(crossLevelsInput.getText());
                 float[] gauges = parseInputToFloatArray(gaugesInput.getText());
                 float[] horizontalDeviations = parseInputToFloatArray(horizontalDeviationsInput.getText());
 
-                // Calculate σH and σs
                 double sigmaH = genH(HLEFT, HRIGHT);
                 double sigmaS = genS(crossLevels, gauges, horizontalDeviations);
 
-                // Assuming you have σ_HLim and σ_sLim inputs (add these fields as necessary)
-                float sigmaHLim = Float.parseFloat(HLimInput.getText()); // Replace with actual input field for σ_HLim
-                float sigmaSLim = Float.parseFloat(sLimInput.getText()); // Replace with actual input field for σ_sLim
 
-                // Call varTGIfive with the calculated values
+                float sigmaHLim = Float.parseFloat(HLimInput.getText()); 
+                float sigmaSLim = Float.parseFloat(sLimInput.getText());
+
                 varTGIfive((float) sigmaH, sigmaHLim, (float) sigmaS, sigmaSLim);
                 varFiveWindow.close();
             } catch (NumberFormatException ex) {
@@ -704,6 +729,133 @@ public class RailGeometry {
         varFiveWindow.setTitle("Variation 5 Deviation Input");
         varFiveWindow.show();
     }
+    
+    private void openVarSixWindow() {
+        Stage varSixWindow = new Stage();
+        BorderPane pane = new BorderPane();
+        pane.setPadding(new Insets(10));
+
+        GridPane gridPane = new GridPane();
+        gridPane.setPadding(new Insets(10));
+        gridPane.setHgap(10);
+        gridPane.setVgap(10);
+        gridPane.setAlignment(Pos.CENTER_LEFT);
+
+        Label notice = new Label("All measurements in mm");
+        notice.setStyle("-fx-font-weight: bold;");
+
+        Label ZLabel = new Label("Longitudinal Level Values (Comma Separated list): ");
+        TextField ZInput = new TextField();
+        
+        Label YLabel = new Label("Alignment Values(Comma Separated list): ");
+        TextField YInput = new TextField();
+
+        Label WLabel = new Label("Twist values (Comma Separated list): ");
+        TextField WInput = new TextField();
+
+        Label ELabel = new Label("Track Gauge values (Comma Separated list): ");
+        TextField EInput = new TextField();
+
+        gridPane.add(notice, 0, 0);
+        gridPane.add(ZLabel, 0, 1);
+        gridPane.add(ZInput, 1, 1);
+        gridPane.add(YLabel, 0, 2);
+        gridPane.add(YInput, 1, 2);
+        gridPane.add(WLabel, 0, 3);
+        gridPane.add(WInput, 1, 3);
+        gridPane.add(ELabel, 0, 4);
+        gridPane.add(EInput, 1, 4);
+       
+        pane.setCenter(gridPane);
+
+        Button enterButton = new Button("Enter");
+        enterButton.setOnAction(e -> {
+            try {
+                float[] Z = parseInputToFloatArray(ZInput.getText());
+                float[] Y = parseInputToFloatArray(YInput.getText());
+                float[] W = parseInputToFloatArray(WInput.getText());
+                float[] E = parseInputToFloatArray(EInput.getText());
+                
+                float SDz = (float)stdv(Z);
+                float SDy = (float)stdv(Y);
+                float SDw = (float)stdv(W);
+                float SDe = (float)stdv(E);
+                varTGIsix(SDz, SDy, SDw, SDe);
+                varSixWindow.close();
+            } catch (NumberFormatException ex) {
+                // Handle number format exceptions or any other parsing errors
+                showError("Please enter valid numerical values.");
+            } catch (IllegalArgumentException ex) {
+                // Handle cases where input arrays are of different sizes
+                showError(ex.getMessage());
+            }
+        });
+
+        BorderPane bottomPane = new BorderPane();
+        bottomPane.setRight(enterButton);
+        BorderPane.setMargin(enterButton, new Insets(10));
+        pane.setBottom(bottomPane);
+
+        Scene scene = new Scene(pane, 400, 400);
+        varSixWindow.setScene(scene);
+        varSixWindow.setTitle("Variation 6 Deviation Input");
+        varSixWindow.show();
+    }
+    
+    private void openVarSevenWindow() { // this method needs read and subsequent stdv calculation for each i, so each n is 
+    	// multiple sections of track and will have many associated values, but only one stdv value, which is the part being 
+    	// modeled here (we jump in at having all stdv values, when they should be calculated from multiple read in lists)
+        Stage VarSevenWindow = new Stage();
+        BorderPane pane = new BorderPane();
+        pane.setPadding(new Insets(10));
+
+        GridPane gridPane = new GridPane();
+        gridPane.setPadding(new Insets(10));
+        gridPane.setHgap(10);
+        gridPane.setVgap(10);
+        gridPane.setAlignment(Pos.CENTER_LEFT);
+
+        Label notice = new Label("All measurements in mm");
+        notice.setStyle("-fx-font-weight: bold;");
+
+        Label stdvLabel = new Label("Standard Deviations (Comma Separated list): ");
+        TextField stdvInput = new TextField();
+        configureInputField(stdvInput);
+
+        gridPane.add(notice, 0, 0);
+        gridPane.add(stdvLabel, 0, 1);
+        gridPane.add(stdvInput, 1, 1);
+        
+        pane.setCenter(gridPane);
+        
+        Button enterButton = new Button("Enter");
+        enterButton.setOnAction(e -> {
+            try {
+                float[] Z = parseInputToFloatArray(stdvInput.getText());
+                float[] unsorted = Arrays.copyOf (Z, Z.length);
+                float eighty = calc80(Z);
+  
+                varTGIseven(unsorted, eighty);
+                VarSevenWindow.close();
+            } catch (NumberFormatException ex) {
+                // Handle number format exceptions or any other parsing errors
+                showError("Please enter valid numerical values.");
+            } catch (IllegalArgumentException ex) {
+                // Handle cases where input arrays are of different sizes
+                showError(ex.getMessage());
+            }
+        });
+
+        BorderPane bottomPane = new BorderPane();
+        bottomPane.setRight(enterButton);
+        BorderPane.setMargin(enterButton, new Insets(10));
+        pane.setBottom(bottomPane);
+
+        Scene scene = new Scene(pane, 400, 300);
+        VarSevenWindow.setScene(scene);
+        VarSevenWindow.setTitle("Variation 2 Deviation Input");
+        VarSevenWindow.show();
+    }
 
     private float[] parseInputToFloatArray(String input) {
         // helper function 
@@ -715,6 +867,190 @@ public class RailGeometry {
         }
 
         return floatValues;
+    }
+    
+    private void openVarEightWindow() { // this allows user input for testing. The list values need to be read in via excel.
+        Stage varEightWindow = new Stage();
+        BorderPane pane = new BorderPane();
+        pane.setPadding(new Insets(10));
+
+        GridPane gridPane = new GridPane();
+        gridPane.setPadding(new Insets(10));
+        gridPane.setHgap(10);
+        gridPane.setVgap(10);
+        gridPane.setAlignment(Pos.CENTER_LEFT);
+
+        Label notice = new Label("All measurements in mm");
+        notice.setStyle("-fx-font-weight: bold;");
+
+        Label gaugeLabel = new Label("Gauge (Comma Separated list): ");
+        TextField gaugeInput = new TextField();
+        
+        Label crossLevelLabel = new Label("Cross Level (Comma Separated list): ");
+        TextField crossLevelInput = new TextField();
+
+        Label leftSurfaceLabel = new Label("Left Surface (Comma Separated list): ");
+        TextField leftSurfaceInput = new TextField();
+
+        Label rightSurfaceLabel = new Label("Right Surface (Comma Separated list): ");
+        TextField rightSurfaceInput = new TextField();
+
+        Label leftAlignmentLabel = new Label("Left Alignment (Comma Separated list): ");
+        TextField leftAlignmentInput = new TextField();
+
+        Label rightAlignmentLabel = new Label("Right Alignment (Comma Separated list): ");
+        TextField rightAlignmentInput = new TextField();
+        
+        gridPane.add(notice, 0, 0);
+        gridPane.add(gaugeLabel, 0, 1);
+        gridPane.add(gaugeInput, 1, 1);
+        gridPane.add(crossLevelLabel, 0, 2);
+        gridPane.add(crossLevelInput, 1, 2);
+        gridPane.add(leftSurfaceLabel, 0, 3);
+        gridPane.add(leftSurfaceInput, 1, 3);
+        gridPane.add(rightSurfaceLabel, 0, 4);
+        gridPane.add(rightSurfaceInput, 1, 4);
+        gridPane.add(leftAlignmentLabel, 0, 5);
+        gridPane.add(leftAlignmentInput, 1, 5);
+        gridPane.add(rightAlignmentLabel, 0, 6);
+        gridPane.add(rightAlignmentInput, 1, 6);
+
+        pane.setCenter(gridPane);
+
+        Button enterButton = new Button("Enter");
+        enterButton.setOnAction(e -> {
+            try {
+                float[] gauges = parseInputToFloatArray(gaugeInput.getText());
+                float[] crossLevels = parseInputToFloatArray(crossLevelInput.getText());
+                float[] leftSurfaces = parseInputToFloatArray(leftSurfaceInput.getText());
+                float[] rightSurfaces = parseInputToFloatArray(rightSurfaceInput.getText());
+                float[] leftAlignments = parseInputToFloatArray(leftAlignmentInput.getText());
+                float[] rightAlignments = parseInputToFloatArray(rightAlignmentInput.getText());
+                
+                float stdvGauge = (float)stdv(gauges);
+                float stdvCross = (float)stdv(crossLevels);
+                float stdvLeftS = (float)stdv(leftSurfaces);
+                float stdvRightS = (float)stdv(rightSurfaces);
+                float stdvLeftA = (float)stdv(leftAlignments);
+                float stdvRightA = (float)stdv(rightAlignments);
+
+                varTGIeight(stdvGauge, stdvCross, stdvLeftA, stdvRightA, stdvLeftS, stdvRightS);
+                varEightWindow.close();
+            } catch (NumberFormatException ex) {
+                // Handle number format exceptions or any other parsing errors
+                showError("Please enter valid numerical values.");
+            } catch (IllegalArgumentException ex) {
+                // Handle cases where input arrays are of different sizes
+                showError(ex.getMessage());
+            }
+        });
+
+        BorderPane bottomPane = new BorderPane();
+        bottomPane.setRight(enterButton);
+        BorderPane.setMargin(enterButton, new Insets(10));
+        pane.setBottom(bottomPane);
+
+        Scene scene = new Scene(pane, 400, 400);
+        varEightWindow.setScene(scene);
+        varEightWindow.setTitle("Variation 8 Deviation Input");
+        varEightWindow.show();
+    }
+    
+    private void openVarNineWindow() {
+        Stage varNineWindow = new Stage();
+        BorderPane pane = new BorderPane();
+        pane.setPadding(new Insets(10));
+
+        GridPane gridPane = new GridPane();
+        gridPane.setPadding(new Insets(10));
+        gridPane.setHgap(10);
+        gridPane.setVgap(10);
+        gridPane.setAlignment(Pos.CENTER_LEFT);
+
+        Label notice = new Label("All measurements in mm");
+        notice.setStyle("-fx-font-weight: bold;");
+
+        // Radio buttons for speed selection
+        ToggleGroup speedGroup = new ToggleGroup();
+        RadioButton above105 = new RadioButton("> 105 kph");
+        above105.setToggleGroup(speedGroup);
+        RadioButton below105 = new RadioButton("< 105 kph");
+        below105.setToggleGroup(speedGroup);
+        
+        Label hLeftLabel = new Label("Uneveness Level (Comma Separated list): ");
+        TextField hLeftInput = new TextField();
+
+        Label hRightLabel = new Label("Alignment (Comma Separated list): ");
+        TextField hRightInput = new TextField();
+
+        Label crossLevelsLabel = new Label("Gauge (Comma Separated list): ");
+        TextField crossLevelsInput = new TextField();
+
+        Label gaugesLabel = new Label("Twist (Comma Separated list): ");
+        TextField gaugesInput = new TextField();
+
+        // Add elements to the grid pane
+        gridPane.add(notice, 0, 0);
+        gridPane.add(above105, 0, 1);
+        gridPane.add(below105, 0, 2);
+        gridPane.add(hLeftLabel, 0, 3);
+        gridPane.add(hLeftInput, 1, 3);
+        gridPane.add(hRightLabel, 0, 4);
+        gridPane.add(hRightInput, 1, 4);
+        gridPane.add(crossLevelsLabel, 0, 5);
+        gridPane.add(crossLevelsInput, 1, 5);
+        gridPane.add(gaugesLabel, 0, 6);
+        gridPane.add(gaugesInput, 1, 6);
+
+        pane.setCenter(gridPane);
+
+        Button enterButton = new Button("Enter");
+        enterButton.setOnAction(e -> {
+            try {
+                // Set static SDnew variables for each category
+                float SDnewLong = 2.5f;
+                float SDnewAlign = 1.5f;
+                float SDnewGauge = 1.0f;
+                float SDnewTwist = 1.75f;
+
+                // Determine SDmain based on user selection
+                float SDmainLong = above105.isSelected() ? 6.2f : 7.2f;
+                float SDmainAlign = 3.0f; // Same for both speed settings
+                float SDmainGauge = 3.6f; // Same for both speed settings
+                float SDmainTwist = above105.isSelected() ? 3.8f : 4.2f;
+
+                // Read inputs into float arrays
+                float[] longitudinalLevel = parseInputToFloatArray(hLeftInput.getText());
+                float[] alignment = parseInputToFloatArray(hRightInput.getText());
+                float[] gauge = parseInputToFloatArray(crossLevelsInput.getText());
+                float[] twist = parseInputToFloatArray(gaugesInput.getText());
+                
+                float SDu = (float)stdv(longitudinalLevel);
+                float SDa = (float)stdv(alignment);
+                float SDg = (float)stdv(gauge);
+                float SDt = (float)stdv(twist);
+
+                // Call the next method with the necessary parameters
+                varTGInine(SDu, SDa, SDt, SDg, SDnewLong, SDnewAlign, SDnewTwist, SDnewGauge, SDmainLong, SDmainAlign, SDmainTwist,SDmainGauge);
+                varNineWindow.close();
+            } catch (NumberFormatException ex) {
+                // Handle number format exceptions or any other parsing errors
+                showError("Please enter valid numerical values.");
+            } catch (IllegalArgumentException ex) {
+                // Handle cases where input arrays are of different sizes
+                showError(ex.getMessage());
+            }
+        });
+
+        BorderPane bottomPane = new BorderPane();
+        bottomPane.setRight(enterButton);
+        BorderPane.setMargin(enterButton, new Insets(10));
+        pane.setBottom(bottomPane);
+
+        Scene scene = new Scene(pane, 400, 400);
+        varNineWindow.setScene(scene);
+        varNineWindow.setTitle("Variation 9 Input");
+        varNineWindow.show();
     }
 
     private void showError(String message) {
@@ -943,6 +1279,148 @@ public class RailGeometry {
         resultBox.setAlignment(Pos.CENTER_LEFT);
 
         resultBox.getChildren().add(new Label("QI Output: " + tgiOut));
+
+        resultPane.setCenter(resultBox);
+
+        Scene resultScene = new Scene(resultPane, 400, 250);
+        resultStage.setScene(resultScene);
+        resultStage.setTitle("Results");
+        resultStage.show();
+    }
+    
+    private void varTGIsix (float SDz, float SDy, float SDw, float SDe) {
+    	float fac = (float) (0.5 * SDe);
+    	float num = SDz * SDy * SDw * fac;
+        tgiOut = (float) (num / 3.5);
+    	
+        resultStage = new Stage();
+        BorderPane resultPane = new BorderPane();
+        resultPane.setPadding(new Insets(10));
+
+        VBox resultBox = new VBox(10);
+        resultBox.setPadding(new Insets(10));
+        resultBox.setAlignment(Pos.CENTER_LEFT);
+
+        resultBox.getChildren().add(new Label("J Output: " + tgiOut));
+
+        resultPane.setCenter(resultBox);
+
+        Scene resultScene = new Scene(resultPane, 400, 250);
+        resultStage.setScene(resultScene);
+        resultStage.setTitle("Results");
+        resultStage.show();
+    }
+    
+    private void varTGIseven(float[] unsorted, float eighty) {
+        resultStage = new Stage();
+        BorderPane resultPane = new BorderPane();
+        resultPane.setPadding(new Insets(10));
+
+        VBox resultBox = new VBox(10);
+        resultBox.setPadding(new Insets(10));
+        resultBox.setAlignment(Pos.CENTER_LEFT);
+
+        StringBuilder exceedingIndices = new StringBuilder();
+        StringBuilder exceedingValues = new StringBuilder();
+
+        for (int i = 0; i < unsorted.length; i++) {
+            double N = (10 * 0.675 * unsorted[i]) / eighty;
+            System.out.println("Run is: "+ unsorted [i] + " , " + eighty + " , " + N);
+
+            if (N >= 6.75) {
+                if (exceedingIndices.length() > 0) {
+                    exceedingIndices.append(", ");
+                    exceedingValues.append(", ");
+                }
+                exceedingIndices.append(i + 1);
+                exceedingValues.append(unsorted[i]);
+            }
+        }
+
+        String indicesMessage = exceedingIndices.length() > 0 ? 
+            "Exceeding Rail Sections: " + exceedingIndices.toString() : 
+            "No sections exceeding the threshold.";
+        
+        String valuesMessage = exceedingValues.length() > 0 ? 
+            "Exceeding Rail Section values: " + exceedingValues.toString() : 
+            "No values exceeding the threshold.";
+
+        resultBox.getChildren().add(new Label(indicesMessage));
+        resultBox.getChildren().add(new Label(valuesMessage));
+
+        resultPane.setCenter(resultBox);
+
+        Scene resultScene = new Scene(resultPane, 400, 250);
+        resultStage.setScene(resultScene);
+        resultStage.setTitle("Results");
+        resultStage.show();
+    }
+    
+    private void varTGIeight(float facOne, float facTwo, float facThree, float facFour, float facFive, float facSix) {
+        resultStage = new Stage();
+        BorderPane resultPane = new BorderPane();
+        resultPane.setPadding(new Insets(10));
+
+        VBox resultBox = new VBox(10);
+        resultBox.setPadding(new Insets(10));
+        resultBox.setAlignment(Pos.CENTER_LEFT);
+
+        String[] categories = {"Gauge", "Cross Level", "Left Alignment", "Right Alignment", "Left Surface", "Right Surface"};
+        float[] stdvs = {facOne, facTwo, facThree, facFour, facFive, facSix};
+
+        float[] tgiValues = new float[6];
+        for (int i = 0; i < stdvs.length; i++) {
+            tgiValues[i] = 1000 - 700 * (stdvs[i] * stdvs[i]);
+        }
+
+        float totalTGI = 0;
+        for (float tgi : tgiValues) {
+            totalTGI += tgi;
+        }
+        float averageTQI = totalTGI / tgiValues.length;
+
+        for (int i = 0; i < categories.length; i++) {
+            resultBox.getChildren().add(new Label(categories[i] + " TGI: " + String.format("%.2f", tgiValues[i])));
+        }
+        resultBox.getChildren().add(new Label("Overall TGI: " + String.format("%.2f", averageTQI)));
+
+        resultPane.setCenter(resultBox);
+
+        Scene resultScene = new Scene(resultPane, 400, 250);
+        resultStage.setScene(resultScene);
+        resultStage.setTitle("Results");
+        resultStage.show();
+    }
+    
+    private void varTGInine(float SDu, float SDa, float SDt, float SDg, float SDuN, float SDaN, float SDtN, float SDgN,
+            float SDuM, float SDaM, float SDtM, float SDgM) {
+        resultStage = new Stage();
+        BorderPane resultPane = new BorderPane();
+        resultPane.setPadding(new Insets(10));
+
+        VBox resultBox = new VBox(10);
+        resultBox.setPadding(new Insets(10));
+        resultBox.setAlignment(Pos.CENTER_LEFT);
+        
+        float uiFac = -1 * ((SDu - SDuN) / (SDuM - SDuN));
+        float aiFac = -1 * ((SDa - SDaN) / (SDaM - SDaN));
+        float tiFac = -1 * ((SDt - SDtN) / (SDtM - SDtN));
+        float giFac = -1 * ((SDg - SDgN) / (SDgM - SDgN));  
+        
+        float ui = (float)(100 * (Math.exp(uiFac)));
+        float ai = (float)(100 * (Math.exp(aiFac)));
+        float ti = (float)(100 * (Math.exp(tiFac)));
+        float gi = (float)(100 * (Math.exp(giFac)));
+        
+        float tgiNum = 2 * ui + ti + gi + 6 * ai;
+        float TGI = tgiNum / 10;
+
+        // Add results to the resultBox
+        resultBox.getChildren().add(new Label("UI: " + String.format("%.2f", ui)));
+        resultBox.getChildren().add(new Label("AI: " + String.format("%.2f", ai)));
+        resultBox.getChildren().add(new Label("TI: " + String.format("%.2f", ti)));
+        resultBox.getChildren().add(new Label("GI: " + String.format("%.2f", gi)));
+        resultBox.getChildren().add(new Label("Overall TGI: " + String.format("%.2f", TGI)));
 
         resultPane.setCenter(resultBox);
 
