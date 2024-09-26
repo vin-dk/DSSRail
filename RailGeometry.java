@@ -3,6 +3,7 @@ import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
+import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.RadioButton;
 import javafx.scene.control.TextField;
@@ -14,7 +15,6 @@ import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 import java.util.Arrays;
 
-// 2.2.5 2.2.6 2.2.10 modify 2.2.7
 
 public class RailGeometry {
 
@@ -106,7 +106,7 @@ public class RailGeometry {
         defaultOption.setToggleGroup(toggleGroup);
         defaultOption.setOnAction(e -> userChoice = "Default");
 
-        for (int i = 1; i <= 9; i++) {
+        for (int i = 1; i <= 10; i++) {
             final int variantNumber = i;
             RadioButton variantOption = new RadioButton("Variant " + variantNumber);
             variantOption.setToggleGroup(toggleGroup);
@@ -150,6 +150,9 @@ public class RailGeometry {
             }
             else if ("Variant 9".equals(userChoice)) {
             	openVarNineWindow();
+            }
+            else if ("Variant 10".equals(userChoice)) {
+            	openVarTenWindow();
             }
             else {
                 primaryStage.close();
@@ -1052,6 +1055,127 @@ public class RailGeometry {
         varNineWindow.setTitle("Variation 9 Input");
         varNineWindow.show();
     }
+    
+    private void openVarTenWindow() {
+        Stage varTenWindow = new Stage();
+        BorderPane pane = new BorderPane();
+        pane.setPadding(new Insets(10));
+
+        GridPane gridPane = new GridPane();
+        gridPane.setPadding(new Insets(10));
+        gridPane.setHgap(10);
+        gridPane.setVgap(10);
+        gridPane.setAlignment(Pos.CENTER_LEFT);
+
+        Label notice = new Label("All measurements in inches");
+        notice.setStyle("-fx-font-weight: bold;");
+
+        Label classLabel = new Label("Class of Track: ");
+        ComboBox<String> classCombo = new ComboBox<>();
+        classCombo.getItems().addAll("1", "2", "3", "4", "5");
+
+        Label typeLabel = new Label("Type of Track: ");
+        ComboBox<String> typeCombo = new ComboBox<>();
+        typeCombo.getItems().addAll("Line (Straight)", "31-foot Chord", "62-foot Chord", "31-foot Qualified Cant Chord", "62-foot Qualified Cant Chord");
+
+        Label longitudinalLabel = new Label("Longitudinal Deviation (L): ");
+        TextField longitudinalInput = new TextField();
+        configureInputField(longitudinalInput);
+
+        Label alignmentLabel = new Label("Alignment Deviation (A): ");
+        TextField alignmentInput = new TextField();
+        configureInputField(alignmentInput);
+
+        Label gaugeLabel = new Label("Gauge Deviation (G): ");
+        TextField gaugeInput = new TextField();
+        configureInputField(gaugeInput);
+        
+        gridPane.add(notice, 0, 0);
+        gridPane.add(classLabel, 0, 1);
+        gridPane.add(classCombo, 1, 1);
+        gridPane.add(typeLabel, 0, 2);
+        gridPane.add(typeCombo, 1, 2);
+        gridPane.add(longitudinalLabel, 0, 3);
+        gridPane.add(longitudinalInput, 1, 3);
+        gridPane.add(alignmentLabel, 0, 4);
+        gridPane.add(alignmentInput, 1, 4);
+        gridPane.add(gaugeLabel, 0, 5);
+        gridPane.add(gaugeInput, 1, 5);
+
+        pane.setCenter(gridPane);
+
+        Button enterButton = new Button("Enter");
+        enterButton.setOnAction(e -> {
+            int trackClass = Integer.parseInt(classCombo.getValue());
+            String trackType = typeCombo.getValue();
+            float l = Float.parseFloat(longitudinalInput.getText());
+            float a = Float.parseFloat(alignmentInput.getText());
+            float g = Float.parseFloat(gaugeInput.getText());
+
+            float Lmax = 0, Gmax = 0, Amax = 0;
+
+            if (trackType.equals("Line (Straight)")) {
+                switch (trackClass) {
+                    case 1 -> { Lmax = 3; Gmax = 1; Amax = 5; }
+                    case 2 -> { Lmax = 2; Gmax = 0.875f; Amax = 3; }
+                    case 3 -> { Lmax = 1.75f; Gmax = 0.875f; Amax = 1.75f; }
+                    case 4 -> { Lmax = 1.5f; Gmax = 0.75f; Amax = 1.5f; }
+                    case 5 -> { Lmax = 1; Gmax = 0.75f; Amax = 0.75f; }
+                }
+            }
+            else if (trackType.equals("31-foot Chord")) {
+                switch (trackClass) {
+                    case 1 -> { Lmax = 0; Gmax = 1; Amax = 0; }  // N/A for L and A
+                    case 2 -> { Lmax = 0; Gmax = 0.875f; Amax = 0; }  // N/A for L and A
+                    case 3 -> { Lmax = 1; Gmax = 0.875f; Amax = 1.25f; }
+                    case 4 -> { Lmax = 1; Gmax = 0.75f; Amax = 1; }
+                    case 5 -> { Lmax = 1; Gmax = 0.75f; Amax = 0.5f; }
+                }
+            }
+            else if (trackType.equals("62-foot Chord")) {
+                switch (trackClass) {
+                    case 1 -> { Lmax = 3; Gmax = 1; Amax = 5; }
+                    case 2 -> { Lmax = 2.75f; Gmax = 0.875f; Amax = 3; }
+                    case 3 -> { Lmax = 2.25f; Gmax = 0.875f; Amax = 1.75f; }
+                    case 4 -> { Lmax = 2; Gmax = 0.75f; Amax = 1.5f; }
+                    case 5 -> { Lmax = 1.25f; Gmax = 0.75f; Amax = 0.625f; }
+                }
+            }
+            else if (trackType.equals("31-foot Qualified Cant Chord")) {
+                switch (trackClass) {
+                    case 1 -> { Lmax = 0; Gmax = 1; Amax = 0; }  // N/A for L and A
+                    case 2 -> { Lmax = 0; Gmax = 0.875f; Amax = 0; }  // N/A for L and A
+                    case 3 -> { Lmax = 1; Gmax = 0.875f; Amax = 1.25f; }
+                    case 4 -> { Lmax = 1; Gmax = 0.75f; Amax = 1; }
+                    case 5 -> { Lmax = 1; Gmax = 0.75f; Amax = 0.5f; }
+                }
+            }
+            else if (trackType.equals("62-foot Qualified Cant Chord")) {
+                switch (trackClass) {
+                    case 1 -> { Lmax = 2.25f; Gmax = 1; Amax = 1.25f; }
+                    case 2 -> { Lmax = 2.25f; Gmax = 0.875f; Amax = 1.25f; }
+                    case 3 -> { Lmax = 1.75f; Gmax = 0.875f; Amax = 1.25f; }
+                    case 4 -> { Lmax = 1.25f; Gmax = 0.75f; Amax = 0.875f; }
+                    case 5 -> { Lmax = 1; Gmax = 0.75f; Amax = 0.625f; }
+                }
+            }
+
+            // Call varTGIseven() with correct parameters
+            varTGIten(l, a, g, Lmax, Amax, Gmax);
+
+            varTenWindow.close();
+        });
+
+        BorderPane bottomPane = new BorderPane();
+        bottomPane.setRight(enterButton);
+        BorderPane.setMargin(enterButton, new Insets(10));
+        pane.setBottom(bottomPane);
+
+        Scene scene = new Scene(pane, 400, 300);
+        varTenWindow.setScene(scene);
+        varTenWindow.setTitle("Track Geometry Index Input");
+        varTenWindow.show();
+    }
 
     private void showError(String message) {
         Alert alert = new Alert(Alert.AlertType.ERROR);
@@ -1421,6 +1545,76 @@ public class RailGeometry {
         resultBox.getChildren().add(new Label("TI: " + String.format("%.2f", ti)));
         resultBox.getChildren().add(new Label("GI: " + String.format("%.2f", gi)));
         resultBox.getChildren().add(new Label("Overall TGI: " + String.format("%.2f", TGI)));
+
+        resultPane.setCenter(resultBox);
+
+        Scene resultScene = new Scene(resultPane, 400, 250);
+        resultStage.setScene(resultScene);
+        resultStage.setTitle("Results");
+        resultStage.show();
+    }
+    
+    private void varTGIten(float L, float A, float G, float Lmax, float Amax, float Gmax) {
+        resultStage = new Stage();
+        BorderPane resultPane = new BorderPane();
+        resultPane.setPadding(new Insets(10));
+
+        VBox resultBox = new VBox(10);
+        resultBox.setPadding(new Insets(10));
+        resultBox.setAlignment(Pos.CENTER_LEFT);
+
+        // Calculate each term, catching divide by zero errors
+        float LFactor, GFactor, AFactor;
+
+        try {
+            LFactor = (L / Lmax) * 100;
+        } catch (ArithmeticException e) {
+            LFactor = 0; // If Lmax is 0, set factor to 0
+        }
+
+        try {
+            GFactor = (G / Gmax) * 100;
+        } catch (ArithmeticException e) {
+            GFactor = 0; // If Gmax is 0, set factor to 0
+        }
+
+        try {
+            AFactor = (A / Amax) * 100;
+        } catch (ArithmeticException e) {
+            AFactor = 0; // If Amax is 0, set factor to 0
+        }
+
+        // Calculate TGI
+        float tgi = 100 - (1.0f / 3.0f) * (LFactor + GFactor + AFactor);
+
+        // Clamp TGI to a minimum of 0
+        tgi = Math.max(tgi, 0);
+
+        // Determine TGI Classification
+        String classification;
+        if (tgi >= 80) {
+            classification = "Excellent Condition";
+        } else if (tgi >= 60) {
+            classification = "Good Condition";
+        } else if (tgi >= 40) {
+            classification = "Fair Condition";
+        } else if (tgi >= 20) {
+            classification = "Poor Condition";
+        } else {
+            classification = "Very Poor Condition";
+        }
+
+        // Calculate exceedances (negative or zero values should show as 0)
+        float lexceed = Math.max(L - Lmax, 0);
+        float aexceed = Math.max(A - Amax, 0);
+        float gexceed = Math.max(G - Gmax, 0);
+
+        // Add results to resultBox
+        resultBox.getChildren().add(new Label("TGI: " + String.format("%.2f", tgi)));
+        resultBox.getChildren().add(new Label("TGI Classification: " + classification));
+        resultBox.getChildren().add(new Label("L exceed: " + String.format("%.2f", lexceed)));
+        resultBox.getChildren().add(new Label("A exceed: " + String.format("%.2f", aexceed)));
+        resultBox.getChildren().add(new Label("G exceed: " + String.format("%.2f", gexceed)));
 
         resultPane.setCenter(resultBox);
 
