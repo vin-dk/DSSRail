@@ -14,6 +14,8 @@ import javafx.scene.layout.GridPane;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 import java.util.Arrays;
+import java.util.List;
+import java.util.ArrayList;
 
 
 public class RailGeometry {
@@ -639,8 +641,7 @@ public class RailGeometry {
         VarTwoWindow.show();
     } 
     
-    private void openVarFiveWindow() { // this allows user input for testing. This is not realistic. The list values need to be read in 
-    	// via excel
+    private void openVarFiveWindow() {
         Stage varFiveWindow = new Stage();
         BorderPane pane = new BorderPane();
         pane.setPadding(new Insets(10));
@@ -654,30 +655,118 @@ public class RailGeometry {
         Label notice = new Label("All measurements in mm");
         notice.setStyle("-fx-font-weight: bold;");
 
-        Label hLeftLabel = new Label("H Left (Comma Separated list): ");
-        TextField hLeftInput = new TextField();
-        
-        Label hRightLabel = new Label("H Right (Comma Separated list): ");
-        TextField hRightInput = new TextField();
+        // Number of Instances
+        Label instanceLabel = new Label("Number of Instances: ");
+        TextField instanceInput = new TextField();
+        configurePositiveInputField(instanceInput);
 
-        Label crossLevelsLabel = new Label("Cross Levels (Comma Separated list): ");
-        TextField crossLevelsInput = new TextField();
+        // Track Length
+        Label lengthLabel = new Label("Track Length (ft): ");
+        TextField lengthInput = new TextField();
+        configurePositiveInputField(lengthInput);
 
-        Label gaugesLabel = new Label("Gauges (Comma Separated list): ");
-        TextField gaugesInput = new TextField();
+        // Track Class
+        Label classLabel = new Label("Track Class: ");
+        ComboBox<String> classCombo = new ComboBox<>();
+        classCombo.getItems().addAll("1", "2", "3", "4", "5");
 
-        Label horizontalDeviationsLabel = new Label("Horizontal Deviations (Comma Separated list): ");
-        TextField horizontalDeviationsInput = new TextField();
-        
-        Label HLimLabel = new Label("σ_HLim: ");
-        TextField HLimInput = new TextField();
-        configureInputField(HLimInput);
-        
-        Label sLimLabel = new Label("σ_sLim: ");
-        TextField sLimInput = new TextField();
-        configurePositiveInputField(sLimInput); 
+        Button nextButton = new Button("Next");
+
+        // Go to instance input when the number of instances is provided
+        nextButton.setOnAction(e -> {
+            try {
+                int instances = Integer.parseInt(instanceInput.getText());
+                float trackLength = Float.parseFloat(lengthInput.getText());
+                int trackClass = Integer.parseInt(classCombo.getValue());
+
+                if (instances <= 0 || trackLength <= 0) {
+                    throw new NumberFormatException("Values must be positive.");
+                }
+
+                float[] limits = getTrackClassLimits(trackClass); // Get Hlim and Slim based on class
+
+                List<float[]> HLeftList = new ArrayList<>();
+                List<float[]> HRightList = new ArrayList<>();
+                List<float[]> crossLevelsList = new ArrayList<>();
+                List<float[]> gaugesList = new ArrayList<>();
+                List<float[]> horizontalDeviationsList = new ArrayList<>();
+
+                // Loop through each instance and gather input
+                for (int i = 0; i < instances; i++) {
+                    collectInstanceData(HLeftList, HRightList, crossLevelsList, gaugesList, horizontalDeviationsList, i + 1);
+                }
+
+                // Pass the data to varTGIfive after all inputs are collected
+                varTGIfive(instances, trackLength, limits[0], limits[1], HLeftList, HRightList, crossLevelsList, gaugesList, horizontalDeviationsList);
+                varFiveWindow.close();
+
+            } catch (NumberFormatException ex) {
+                showError("Please enter valid positive numerical values.");
+            }
+        });
 
         gridPane.add(notice, 0, 0);
+        gridPane.add(instanceLabel, 0, 1);
+        gridPane.add(instanceInput, 1, 1);
+        gridPane.add(lengthLabel, 0, 2);
+        gridPane.add(lengthInput, 1, 2);
+        gridPane.add(classLabel, 0, 3);
+        gridPane.add(classCombo, 1, 3);
+        gridPane.add(nextButton, 1, 4);
+
+        pane.setCenter(gridPane);
+
+        Scene scene = new Scene(pane, 400, 300);
+        varFiveWindow.setScene(scene);
+        varFiveWindow.setTitle("Variation 5 Input");
+        varFiveWindow.show();
+    }
+    
+    private void collectInstanceData(List<float[]> HLeftList, List<float[]> HRightList, List<float[]> crossLevelsList, List<float[]> gaugesList, List<float[]> horizontalDeviationsList, int instanceNumber) {
+        Stage instanceWindow = new Stage();
+        BorderPane pane = new BorderPane();
+        pane.setPadding(new Insets(10));
+
+        GridPane gridPane = new GridPane();
+        gridPane.setPadding(new Insets(10));
+        gridPane.setHgap(10);
+        gridPane.setVgap(10);
+        gridPane.setAlignment(Pos.CENTER_LEFT);
+
+        Label instanceLabel = new Label("Instance " + instanceNumber);
+        instanceLabel.setStyle("-fx-font-weight: bold;");
+
+        Label hLeftLabel = new Label("H Left (Comma Separated List): ");
+        TextField hLeftInput = new TextField();
+
+        Label hRightLabel = new Label("H Right (Comma Separated List): ");
+        TextField hRightInput = new TextField();
+
+        Label crossLevelsLabel = new Label("Cross Levels (Comma Separated List): ");
+        TextField crossLevelsInput = new TextField();
+
+        Label gaugesLabel = new Label("Gauges (Comma Separated List): ");
+        TextField gaugesInput = new TextField();
+
+        Label horizontalDeviationsLabel = new Label("Horizontal Deviations (Comma Separated List): ");
+        TextField horizontalDeviationsInput = new TextField();
+
+        Button submitButton = new Button("Submit");
+
+        submitButton.setOnAction(e -> {
+            try {
+                HLeftList.add(parseInputToFloatArray(hLeftInput.getText()));
+                HRightList.add(parseInputToFloatArray(hRightInput.getText()));
+                crossLevelsList.add(parseInputToFloatArray(crossLevelsInput.getText()));
+                gaugesList.add(parseInputToFloatArray(gaugesInput.getText()));
+                horizontalDeviationsList.add(parseInputToFloatArray(horizontalDeviationsInput.getText()));
+                instanceWindow.close();
+            } catch (NumberFormatException ex) {
+                showError("Please enter valid numerical values.");
+            }
+        });
+
+        gridPane.add(instanceLabel, 0, 0);
         gridPane.add(hLeftLabel, 0, 1);
         gridPane.add(hLeftInput, 1, 1);
         gridPane.add(hRightLabel, 0, 2);
@@ -688,49 +777,25 @@ public class RailGeometry {
         gridPane.add(gaugesInput, 1, 4);
         gridPane.add(horizontalDeviationsLabel, 0, 5);
         gridPane.add(horizontalDeviationsInput, 1, 5);
-        gridPane.add(HLimLabel, 0, 6);
-        gridPane.add(HLimInput, 1, 6);
-        gridPane.add(sLimLabel, 0, 7);
-        gridPane.add(sLimInput, 1, 7);
+        gridPane.add(submitButton, 1, 6);
 
         pane.setCenter(gridPane);
 
-        Button enterButton = new Button("Enter");
-        enterButton.setOnAction(e -> {
-            try {
-                float[] HLEFT = parseInputToFloatArray(hLeftInput.getText());
-                float[] HRIGHT = parseInputToFloatArray(hRightInput.getText());
-                float[] crossLevels = parseInputToFloatArray(crossLevelsInput.getText());
-                float[] gauges = parseInputToFloatArray(gaugesInput.getText());
-                float[] horizontalDeviations = parseInputToFloatArray(horizontalDeviationsInput.getText());
-
-                double sigmaH = genH(HLEFT, HRIGHT);
-                double sigmaS = genS(crossLevels, gauges, horizontalDeviations);
-
-
-                float sigmaHLim = Float.parseFloat(HLimInput.getText()); 
-                float sigmaSLim = Float.parseFloat(sLimInput.getText());
-
-                varTGIfive((float) sigmaH, sigmaHLim, (float) sigmaS, sigmaSLim);
-                varFiveWindow.close();
-            } catch (NumberFormatException ex) {
-                // Handle number format exceptions or any other parsing errors
-                showError("Please enter valid numerical values.");
-            } catch (IllegalArgumentException ex) {
-                // Handle cases where input arrays are of different sizes
-                showError(ex.getMessage());
-            }
-        });
-
-        BorderPane bottomPane = new BorderPane();
-        bottomPane.setRight(enterButton);
-        BorderPane.setMargin(enterButton, new Insets(10));
-        pane.setBottom(bottomPane);
-
-        Scene scene = new Scene(pane, 400, 400);
-        varFiveWindow.setScene(scene);
-        varFiveWindow.setTitle("Variation 5 Deviation Input");
-        varFiveWindow.show();
+        Scene scene = new Scene(pane, 400, 300);
+        instanceWindow.setScene(scene);
+        instanceWindow.setTitle("Instance " + instanceNumber + " Input");
+        instanceWindow.showAndWait();
+    }
+    
+    private float[] getTrackClassLimits(int trackClass) {
+        switch (trackClass) {
+            case 1: return new float[] {3, 3};
+            case 2: return new float[] {2, 2};
+            case 3: return new float[] {1.75f, 1.75f};
+            case 4: return new float[] {1.5f, 1.5f};
+            case 5: return new float[] {1, 1};
+            default: throw new IllegalArgumentException("Invalid Track Class");
+        }
     }
     
     private void openVarSixWindow() {
@@ -1381,19 +1446,36 @@ public class RailGeometry {
         resultStage.show();
     }
     
-    private void varTGIfive (float H, float Hlim, float S, float Slim) {
-    	float normalizedH = H / Hlim;
-        float normalizedS = 2 * (S / Slim);
-        
-        
-        float totalDeviation = normalizedH + normalizedS;
-        
-        
-        int roundedDeviation = (int) Math.ceil(totalDeviation);
-        
-        
-        tgiOut = 150 - (100.0f / 3.0f) * roundedDeviation;
-    	
+    private void varTGIfive(int instances, float trackLength, float Hlim, float Slim, List<float[]> HLeftList, List<float[]> HRightList, List<float[]> crossLevelsList, List<float[]> gaugesList, List<float[]> horizontalDeviationsList) {
+        List<Float> tgiValues = new ArrayList<>();
+        int satisfactoryInstances = 0;
+
+        for (int i = 0; i < instances; i++) {
+            double sigmaH = genH(HLeftList.get(i), HRightList.get(i));
+            double sigmaS = genS(crossLevelsList.get(i), gaugesList.get(i), horizontalDeviationsList.get(i));
+
+            float sigmaHFloat = (float) sigmaH;
+            float sigmaSFloat = (float) sigmaS;
+
+            float normalizedH = sigmaHFloat / Hlim;
+            float normalizedS = 2 * (sigmaSFloat / Slim);
+
+            float totalDeviation = normalizedH + normalizedS;
+            int roundedDeviation = (int) Math.ceil(totalDeviation);
+            float tgiOut = 150 - (100.0f / 3.0f) * roundedDeviation;
+
+            tgiValues.add(tgiOut);
+
+            if (sigmaH <= Hlim && sigmaS <= Slim) {
+                satisfactoryInstances++;
+            }
+        }
+
+        float satisfactoryLength = satisfactoryInstances * trackLength;
+        float totalLength = instances * trackLength;
+        float K = satisfactoryLength / totalLength;
+
+        // Output Results
         resultStage = new Stage();
         BorderPane resultPane = new BorderPane();
         resultPane.setPadding(new Insets(10));
@@ -1402,13 +1484,14 @@ public class RailGeometry {
         resultBox.setPadding(new Insets(10));
         resultBox.setAlignment(Pos.CENTER_LEFT);
 
-        resultBox.getChildren().add(new Label("QI Output: " + tgiOut));
+        resultBox.getChildren().add(new Label("QI Values: " + tgiValues.toString()));
+        resultBox.getChildren().add(new Label("K Value: " + String.format("%.2f", K)));
 
         resultPane.setCenter(resultBox);
 
-        Scene resultScene = new Scene(resultPane, 400, 250);
+        Scene resultScene = new Scene(resultPane, 400, 400);
         resultStage.setScene(resultScene);
-        resultStage.setTitle("Results");
+        resultStage.setTitle("Variation 5 Results");
         resultStage.show();
     }
     
