@@ -233,10 +233,6 @@ public class RailGeometry {
 
         ToggleGroup toggleGroup = new ToggleGroup();
 
-        RadioButton defaultOption = new RadioButton("Default");
-        defaultOption.setToggleGroup(toggleGroup);
-        defaultOption.setOnAction(e -> userChoice = "Default");
-
         for (int i = 1; i <= 9; i++) {
             String optionName;
             
@@ -278,8 +274,6 @@ public class RailGeometry {
             variantOption.setOnAction(e -> userChoice = selectedOption);
             optionsBox.getChildren().add(variantOption);
         }
-
-        optionsBox.getChildren().add(defaultOption);
 
         root.setLeft(optionsBox);
 
@@ -326,7 +320,7 @@ public class RailGeometry {
         BorderPane.setMargin(enterButton, new Insets(10));
         root.setBottom(bottomPane);
 
-        Scene scene = new Scene(root, 300, 250);
+        Scene scene = new Scene(root, 350, 350);
         primaryStage.setScene(scene);
         primaryStage.setTitle("Menu Selection");
     }
