@@ -10,6 +10,7 @@
 
     <properties>
         <javafx.version>18.0.1</javafx.version> <!-- JavaFX version -->
+        <maven.repo.local>${settings.localRepository}</maven.repo.local>
     </properties>
 
     <dependencies>
@@ -71,6 +72,12 @@
                 </executions>
                 <configuration>
                     <mainClass>MenuSelectionGUI</mainClass>
+                    <options>
+                        <option>--module-path</option>
+                        <option>${maven.repo.local}/org/openjfx</option>
+                        <option>--add-modules</option>
+                        <option>javafx.controls,javafx.fxml</option>
+                    </options>
                 </configuration>
             </plugin>
         </plugins>
