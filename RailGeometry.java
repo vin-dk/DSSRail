@@ -400,10 +400,6 @@ public class RailGeometry {
         notice.setStyle("-fx-font-weight: bold;");
 
         // Input fields for the number of instances, track class, and track type
-        Label instancesLabel = new Label("Number of Instances: ");
-        TextField instancesInput = new TextField();
-        configureInputField(instancesInput);
-
         Label classLabel = new Label("Class of Track: ");
         ComboBox<String> classCombo = new ComboBox<>();
         classCombo.getItems().addAll("1", "2", "3", "4", "5");
@@ -412,22 +408,36 @@ public class RailGeometry {
         ComboBox<String> typeCombo = new ComboBox<>();
         typeCombo.getItems().addAll("Line (Straight)", "31-foot Chord", "62-foot Chord", "31-foot Qualified Cant Chord", "62-foot Qualified Cant Chord");
 
+        // File chooser button
+        Label fileLabel = new Label("Select Excel File: ");
+        Button fileButton = new Button("Browse...");
+        Label selectedFileLabel = new Label("No file selected");
+        
+        FileChooser fileChooser = new FileChooser();
+        fileChooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Excel Files", "*.xlsx"));
+        
+        fileButton.setOnAction(e -> {
+            File selectedFile = fileChooser.showOpenDialog(defaultWindow);
+            if (selectedFile != null) {
+                selectedFileLabel.setText(selectedFile.getAbsolutePath());
+            }
+        });
+
         // Add components to grid
         gridPane.add(notice, 0, 0);
-        gridPane.add(instancesLabel, 0, 1);
-        gridPane.add(instancesInput, 1, 1);
-        gridPane.add(classLabel, 0, 2);
-        gridPane.add(classCombo, 1, 2);
-        gridPane.add(typeLabel, 0, 3);
-        gridPane.add(typeCombo, 1, 3);
+        gridPane.add(classLabel, 0, 1);
+        gridPane.add(classCombo, 1, 1);
+        gridPane.add(typeLabel, 0, 2);
+        gridPane.add(typeCombo, 1, 2);
+        gridPane.add(fileLabel, 0, 3);
+        gridPane.add(fileButton, 1, 3);
+        gridPane.add(selectedFileLabel, 1, 4);
 
         pane.setCenter(gridPane);
 
         Button enterButton = new Button("Enter");
         enterButton.setOnAction(e -> {
             try {
-                int instances = Integer.parseInt(instancesInput.getText());
-
                 // Get selected class and type
                 int trackClass = Integer.parseInt(classCombo.getValue());
                 String trackType = typeCombo.getValue();
@@ -477,18 +487,39 @@ public class RailGeometry {
                     }
                 }
 
-                // Now that we have track class/type and limits, collect data for multiple instances
-                List<float[]> longitudinalList = new ArrayList<>();
-                List<float[]> alignmentList = new ArrayList<>();
-                List<float[]> gaugeList = new ArrayList<>();
+                // Now that we have track class/type and limits, read Excel data
+                if (!selectedFileLabel.getText().equals("No file selected")) {
+                    File excelFile = new File(selectedFileLabel.getText());
+                    List<float[]> longitudinalList = new ArrayList<>();
+                    List<float[]> alignmentList = new ArrayList<>();
+                    List<float[]> gaugeList = new ArrayList<>();
 
-                for (int i = 0; i < instances; i++) {
-                    collectInstanceDataDefault(longitudinalList, alignmentList, gaugeList, i + 1);
+                    // Use Apache POI to read Excel
+                    try (FileInputStream fis = new FileInputStream(excelFile);
+                         Workbook workbook = new XSSFWorkbook(fis)) {
+                        Sheet sheet = workbook.getSheetAt(0);
+
+                        for (Row row : sheet) {
+                            // Read each row, expecting 3 columns: L, A, G
+                            float l = (float) row.getCell(0).getNumericCellValue();
+                            float a = (float) row.getCell(1).getNumericCellValue();
+                            float g = (float) row.getCell(2).getNumericCellValue();
+
+                            longitudinalList.add(new float[]{l});
+                            alignmentList.add(new float[]{a});
+                            gaugeList.add(new float[]{g});
+                        }
+                    } catch (IOException | NullPointerException ex) {
+                        showError("Error reading Excel file or invalid format. Ensure proper L, A, G values.");
+                    }
+
+                    // After collecting data, perform calculations
+                    int instances = longitudinalList.size();  // Number of rows = number of instances
+                    varDefaultTGI(instances, Lmax, Amax, Gmax, longitudinalList, alignmentList, gaugeList);
+                    defaultWindow.close();
+                } else {
+                    showError("Please select an Excel file.");
                 }
-
-                // After collecting data, perform calculations
-                varDefaultTGI(instances, Lmax, Amax, Gmax, longitudinalList, alignmentList, gaugeList);
-                defaultWindow.close();
             } catch (Exception ex) {
                 showError("Invalid input. Please enter valid numbers.");
             }
@@ -499,9 +530,9 @@ public class RailGeometry {
         BorderPane.setMargin(enterButton, new Insets(10));
         pane.setBottom(bottomPane);
 
-        Scene scene = new Scene(pane, 400, 300);
+        Scene scene = new Scene(pane, 400, 400);
         defaultWindow.setScene(scene);
-        defaultWindow.setTitle("Default Deviation Input");
+        defaultWindow.setTitle("Default TGI Input");
         defaultWindow.show();
     }
     
