@@ -139,9 +139,61 @@ public class RailGeometry {
         return floatValues;
     }
     
+ 
+    private void collectInstanceDataDefault(List<float[]> longitudinalList, List<float[]> alignmentList, List<float[]> gaugeList, int instanceNumber) {
+    	// Helper function to collect input data for each instance, default
+        Stage instanceWindow = new Stage();
+        BorderPane pane = new BorderPane();
+        pane.setPadding(new Insets(10));
+
+        GridPane gridPane = new GridPane();
+        gridPane.setPadding(new Insets(10));
+        gridPane.setHgap(10);
+        gridPane.setVgap(10);
+        gridPane.setAlignment(Pos.CENTER_LEFT);
+
+        Label instanceLabel = new Label("Instance " + instanceNumber);
+        instanceLabel.setStyle("-fx-font-weight: bold;");
+
+        // Input fields for longitudinal, alignment, and gauge deviation
+        Label longitudinalLabel = new Label("Longitudinal Deviation (L): ");
+        TextField longitudinalInput = new TextField();
+        Label alignmentLabel = new Label("Alignment Deviation (A): ");
+        TextField alignmentInput = new TextField();
+        Label gaugeLabel = new Label("Gauge Deviation (G): ");
+        TextField gaugeInput = new TextField();
+
+        Button submitButton = new Button("Submit");
+        submitButton.setOnAction(e -> {
+            try {
+                longitudinalList.add(parseInputToFloatArray(longitudinalInput.getText()));
+                alignmentList.add(parseInputToFloatArray(alignmentInput.getText()));
+                gaugeList.add(parseInputToFloatArray(gaugeInput.getText()));
+                instanceWindow.close();
+            } catch (NumberFormatException ex) {
+                showError("Please enter valid numerical values.");
+            }
+        });
+
+        gridPane.add(instanceLabel, 0, 0);
+        gridPane.add(longitudinalLabel, 0, 1);
+        gridPane.add(longitudinalInput, 1, 1);
+        gridPane.add(alignmentLabel, 0, 2);
+        gridPane.add(alignmentInput, 1, 2);
+        gridPane.add(gaugeLabel, 0, 3);
+        gridPane.add(gaugeInput, 1, 3);
+        gridPane.add(submitButton, 1, 4);
+
+        pane.setCenter(gridPane);
+
+        Scene scene = new Scene(pane, 400, 300);
+        instanceWindow.setScene(scene);
+        instanceWindow.setTitle("Instance " + instanceNumber + " Input");
+        instanceWindow.showAndWait();
+    }
 
     private void collectInstanceData(List<float[]> HLeftList, List<float[]> HRightList, List<float[]> crossLevelsList, List<float[]> gaugesList, List<float[]> horizontalDeviationsList, int instanceNumber) {
-    	//helper function, fetch list for instances
+    	//helper function, fetch list for instances, swedenQ
         Stage instanceWindow = new Stage();
         BorderPane pane = new BorderPane();
         pane.setPadding(new Insets(10));
@@ -341,7 +393,11 @@ public class RailGeometry {
         Label notice = new Label("All measurements in inches");
         notice.setStyle("-fx-font-weight: bold;");
 
-        // Dropdowns for selecting track class and type
+        // Input fields for the number of instances, track class, and track type
+        Label instancesLabel = new Label("Number of Instances: ");
+        TextField instancesInput = new TextField();
+        configureInputField(instancesInput);
+
         Label classLabel = new Label("Class of Track: ");
         ComboBox<String> classCombo = new ComboBox<>();
         classCombo.getItems().addAll("1", "2", "3", "4", "5");
@@ -350,50 +406,29 @@ public class RailGeometry {
         ComboBox<String> typeCombo = new ComboBox<>();
         typeCombo.getItems().addAll("Line (Straight)", "31-foot Chord", "62-foot Chord", "31-foot Qualified Cant Chord", "62-foot Qualified Cant Chord");
 
-        // Input fields for observed deviations
-        Label longitudinalLabel = new Label("Longitudinal Deviation: ");
-        TextField longitudinalInput = new TextField();
-        configureInputField(longitudinalInput);
-
-        Label alignmentLabel = new Label("Alignment Deviation: ");
-        TextField alignmentInput = new TextField();
-        configureInputField(alignmentInput);
-
-        Label gaugeLabel = new Label("Gauge Deviation: ");
-        TextField gaugeInput = new TextField();
-        configureInputField(gaugeInput);
-
         // Add components to grid
         gridPane.add(notice, 0, 0);
-        gridPane.add(classLabel, 0, 1);
-        gridPane.add(classCombo, 1, 1);
-        gridPane.add(typeLabel, 0, 2);
-        gridPane.add(typeCombo, 1, 2);
-        gridPane.add(longitudinalLabel, 0, 3);
-        gridPane.add(longitudinalInput, 1, 3);
-        gridPane.add(alignmentLabel, 0, 4);
-        gridPane.add(alignmentInput, 1, 4);
-        gridPane.add(gaugeLabel, 0, 5);
-        gridPane.add(gaugeInput, 1, 5);
+        gridPane.add(instancesLabel, 0, 1);
+        gridPane.add(instancesInput, 1, 1);
+        gridPane.add(classLabel, 0, 2);
+        gridPane.add(classCombo, 1, 2);
+        gridPane.add(typeLabel, 0, 3);
+        gridPane.add(typeCombo, 1, 3);
 
         pane.setCenter(gridPane);
 
         Button enterButton = new Button("Enter");
         enterButton.setOnAction(e -> {
             try {
-                // Fetch observed deviations
-                float l = Float.parseFloat(longitudinalInput.getText());
-                float a = Float.parseFloat(alignmentInput.getText());
-                float g = Float.parseFloat(gaugeInput.getText());
+                int instances = Integer.parseInt(instancesInput.getText());
 
                 // Get selected class and type
                 int trackClass = Integer.parseInt(classCombo.getValue());
                 String trackType = typeCombo.getValue();
 
-                // Variables for allowances (dynamically set based on track class and type)
+                // Variables for allowances (set based on track class and type)
                 float Lmax = 0, Amax = 0, Gmax = 0;
 
-                // Dynamic allowance values based on track class and type
                 if (trackType.equals("Line (Straight)")) {
                     switch (trackClass) {
                         case 1 -> { Lmax = 3; Gmax = 1; Amax = 5; }
@@ -404,8 +439,8 @@ public class RailGeometry {
                     }
                 } else if (trackType.equals("31-foot Chord")) {
                     switch (trackClass) {
-                        case 1 -> { Lmax = 0; Gmax = 1; Amax = 0; }  // N/A for L and A
-                        case 2 -> { Lmax = 0; Gmax = 0.875f; Amax = 0; }  // N/A for L and A
+                        case 1 -> { Lmax = 0; Gmax = 1; Amax = 0; }
+                        case 2 -> { Lmax = 0; Gmax = 0.875f; Amax = 0; }
                         case 3 -> { Lmax = 1; Gmax = 0.875f; Amax = 1.25f; }
                         case 4 -> { Lmax = 1; Gmax = 0.75f; Amax = 1; }
                         case 5 -> { Lmax = 1; Gmax = 0.75f; Amax = 0.5f; }
@@ -420,8 +455,8 @@ public class RailGeometry {
                     }
                 } else if (trackType.equals("31-foot Qualified Cant Chord")) {
                     switch (trackClass) {
-                        case 1 -> { Lmax = 0; Gmax = 1; Amax = 0; }  // N/A for L and A
-                        case 2 -> { Lmax = 0; Gmax = 0.875f; Amax = 0; }  // N/A for L and A
+                        case 1 -> { Lmax = 0; Gmax = 1; Amax = 0; }
+                        case 2 -> { Lmax = 0; Gmax = 0.875f; Amax = 0; }
                         case 3 -> { Lmax = 1; Gmax = 0.875f; Amax = 1.25f; }
                         case 4 -> { Lmax = 1; Gmax = 0.75f; Amax = 1; }
                         case 5 -> { Lmax = 1; Gmax = 0.75f; Amax = 0.5f; }
@@ -436,8 +471,17 @@ public class RailGeometry {
                     }
                 }
 
-                // Call the calculation method with the dynamically set allowances
-                defaultTGI(l, a, g, Lmax, Amax, Gmax);
+                // Now that we have track class/type and limits, collect data for multiple instances
+                List<float[]> longitudinalList = new ArrayList<>();
+                List<float[]> alignmentList = new ArrayList<>();
+                List<float[]> gaugeList = new ArrayList<>();
+
+                for (int i = 0; i < instances; i++) {
+                    collectInstanceDataDefault(longitudinalList, alignmentList, gaugeList, i + 1);
+                }
+
+                // After collecting data, perform calculations
+                varDefaultTGI(instances, Lmax, Amax, Gmax, longitudinalList, alignmentList, gaugeList);
                 defaultWindow.close();
             } catch (Exception ex) {
                 showError("Invalid input. Please enter valid numbers.");
@@ -1143,33 +1187,35 @@ public class RailGeometry {
      
     // output methods, assumes that we have the components necessary for final computation, displays output
     
-    private void defaultTGI(float l, float a, float g, float allowanceL, float allowanceA, float allowanceG) {
-        if (allowanceL == 0) {
-            l = 0;
-        }
-        if (allowanceA == 0) {
-            a = 0;
-        }
-        if (allowanceG == 0) {
-            g = 0;
+    private void varDefaultTGI(int instances, float Lmax, float Amax, float Gmax, List<float[]> longitudinalList, List<float[]> alignmentList, List<float[]> gaugeList) {
+        List<Float> tgiValues = new ArrayList<>();
+        int satisfactoryInstances = 0;
+
+        StringBuilder exceedanceOutput = new StringBuilder();
+
+        for (int i = 0; i < instances; i++) {
+            float l = longitudinalList.get(i)[0];
+            float a = alignmentList.get(i)[0];
+            float g = gaugeList.get(i)[0];
+
+            float exceedL = l - Lmax > 0 ? l - Lmax : 0;
+            float exceedA = a - Amax > 0 ? a - Amax : 0;
+            float exceedG = g - Gmax > 0 ? g - Gmax : 0;
+
+            float tgiOut = 100 - ((l + a + g) / (Lmax + Amax + Gmax)) * 100;
+            tgiOut = Math.round(tgiOut);
+
+            tgiValues.add(tgiOut);
+
+            if (tgiOut >= 0) {
+                satisfactoryInstances++;
+            }
+
+            exceedanceOutput.append(String.format("Instance %d L, A, G exceed: %.2f, %.2f, %.2f\n", i + 1, exceedL, exceedA, exceedG));
         }
 
-        float exceedL = l - allowanceL > 0 ? l - allowanceL : 0;
-        float exceedA = a - allowanceA > 0 ? a - allowanceA : 0;
-        float exceedG = g - allowanceG > 0 ? g - allowanceG : 0;
+        float K = (float) satisfactoryInstances / instances;
 
-        tgiOut = 100 - ((l + a + g) / (allowanceL + allowanceA + allowanceG)) * 100;
-        tgiOut = Math.round(tgiOut);
-
-        if (tgiOut < 0) {
-            condition = "Very Poor";
-            recommendedCourse = "Immediate shutdown or major repairs required";
-        } else {
-            condition = assignments[(int) Math.min(Math.max(tgiOut / 20, 0), 4)];
-            recommendedCourse = recommendation[Math.min((int) tgiOut / 20, 4)];
-        }
-
-        // Create result window
         resultStage = new Stage();
         BorderPane resultPane = new BorderPane();
         resultPane.setPadding(new Insets(10));
@@ -1178,18 +1224,17 @@ public class RailGeometry {
         resultBox.setPadding(new Insets(10));
         resultBox.setAlignment(Pos.CENTER_LEFT);
 
-        resultBox.getChildren().add(new Label("TGI Output: " + tgiOut));
-        resultBox.getChildren().add(new Label("Condition: " + condition));
-        resultBox.getChildren().add(new Label("Recommended Course of Action: " + recommendedCourse));
-        resultBox.getChildren().add(new Label("Longitudinal exceedance: " + exceedL));
-        resultBox.getChildren().add(new Label("Alignment exceedance: " + exceedA));
-        resultBox.getChildren().add(new Label("Gauge exceedance: " + exceedG));
+        resultBox.getChildren().add(new Label("TGI Values: " + tgiValues.toString()));
+        resultBox.getChildren().add(new Label("K Value: " + String.format("%.2f", K)));
+
+        resultBox.getChildren().add(new Label("Exceedance Values:"));
+        resultBox.getChildren().add(new Label(exceedanceOutput.toString()));
 
         resultPane.setCenter(resultBox);
 
-        Scene resultScene = new Scene(resultPane, 400, 250);
+        Scene resultScene = new Scene(resultPane, 400, 400);
         resultStage.setScene(resultScene);
-        resultStage.setTitle("Results");
+        resultStage.setTitle("Default TGI Results");
         resultStage.show();
     }
     
