@@ -338,9 +338,19 @@ public class RailGeometry {
         gridPane.setVgap(10);
         gridPane.setAlignment(Pos.CENTER_LEFT);
 
-        Label notice = new Label("All measurements in mm");
+        Label notice = new Label("All measurements in inches");
         notice.setStyle("-fx-font-weight: bold;");
 
+        // Dropdowns for selecting track class and type
+        Label classLabel = new Label("Class of Track: ");
+        ComboBox<String> classCombo = new ComboBox<>();
+        classCombo.getItems().addAll("1", "2", "3", "4", "5");
+
+        Label typeLabel = new Label("Type of Track: ");
+        ComboBox<String> typeCombo = new ComboBox<>();
+        typeCombo.getItems().addAll("Line (Straight)", "31-foot Chord", "62-foot Chord", "31-foot Qualified Cant Chord", "62-foot Qualified Cant Chord");
+
+        // Input fields for observed deviations
         Label longitudinalLabel = new Label("Longitudinal Deviation: ");
         TextField longitudinalInput = new TextField();
         configureInputField(longitudinalInput);
@@ -353,75 +363,85 @@ public class RailGeometry {
         TextField gaugeInput = new TextField();
         configureInputField(gaugeInput);
 
-        Label allowanceLLabel = new Label("Allowance Longitudinal: ");
-        TextField allowanceLInput = new TextField();
-        configurePositiveInputField(allowanceLInput);
-
-        Label allowanceALabel = new Label("Allowance Alignment: ");
-        TextField allowanceAInput = new TextField();
-        configurePositiveInputField(allowanceAInput);
-
-        Label allowanceGLabel = new Label("Allowance Gauge: ");
-        TextField allowanceGInput = new TextField();
-        configurePositiveInputField(allowanceGInput);
-
-        longitudinalInput.setOnKeyPressed(e -> {
-            if (e.getCode() == KeyCode.ENTER) {
-                alignmentInput.requestFocus();
-            }
-        });
-
-        alignmentInput.setOnKeyPressed(e -> {
-            if (e.getCode() == KeyCode.ENTER) {
-                gaugeInput.requestFocus();
-            }
-        });
-
-        gaugeInput.setOnKeyPressed(e -> {
-            if (e.getCode() == KeyCode.ENTER) {
-                allowanceLInput.requestFocus();
-            }
-        });
-
-        allowanceLInput.setOnKeyPressed(e -> {
-            if (e.getCode() == KeyCode.ENTER) {
-                allowanceAInput.requestFocus();
-            }
-        });
-
-        allowanceAInput.setOnKeyPressed(e -> {
-            if (e.getCode() == KeyCode.ENTER) {
-                allowanceGInput.requestFocus();
-            }
-        });
-
+        // Add components to grid
         gridPane.add(notice, 0, 0);
-        gridPane.add(longitudinalLabel, 0, 1);
-        gridPane.add(longitudinalInput, 1, 1);
-        gridPane.add(alignmentLabel, 0, 2);
-        gridPane.add(alignmentInput, 1, 2);
-        gridPane.add(gaugeLabel, 0, 3);
-        gridPane.add(gaugeInput, 1, 3);
-        gridPane.add(allowanceLLabel, 0, 4);
-        gridPane.add(allowanceLInput, 1, 4);
-        gridPane.add(allowanceALabel, 0, 5);
-        gridPane.add(allowanceAInput, 1, 5);
-        gridPane.add(allowanceGLabel, 0, 6);
-        gridPane.add(allowanceGInput, 1, 6);
+        gridPane.add(classLabel, 0, 1);
+        gridPane.add(classCombo, 1, 1);
+        gridPane.add(typeLabel, 0, 2);
+        gridPane.add(typeCombo, 1, 2);
+        gridPane.add(longitudinalLabel, 0, 3);
+        gridPane.add(longitudinalInput, 1, 3);
+        gridPane.add(alignmentLabel, 0, 4);
+        gridPane.add(alignmentInput, 1, 4);
+        gridPane.add(gaugeLabel, 0, 5);
+        gridPane.add(gaugeInput, 1, 5);
 
         pane.setCenter(gridPane);
 
         Button enterButton = new Button("Enter");
         enterButton.setOnAction(e -> {
-            float l = Float.parseFloat(longitudinalInput.getText());
-            float a = Float.parseFloat(alignmentInput.getText());
-            float g = Float.parseFloat(gaugeInput.getText());
-            float allowanceL = Float.parseFloat(allowanceLInput.getText());
-            float allowanceA = Float.parseFloat(allowanceAInput.getText());
-            float allowanceG = Float.parseFloat(allowanceGInput.getText());
+            try {
+                // Fetch observed deviations
+                float l = Float.parseFloat(longitudinalInput.getText());
+                float a = Float.parseFloat(alignmentInput.getText());
+                float g = Float.parseFloat(gaugeInput.getText());
 
-            defaultTGI(l, a, g, allowanceL, allowanceA, allowanceG);
-            defaultWindow.close();
+                // Get selected class and type
+                int trackClass = Integer.parseInt(classCombo.getValue());
+                String trackType = typeCombo.getValue();
+
+                // Variables for allowances (dynamically set based on track class and type)
+                float Lmax = 0, Amax = 0, Gmax = 0;
+
+                // Dynamic allowance values based on track class and type
+                if (trackType.equals("Line (Straight)")) {
+                    switch (trackClass) {
+                        case 1 -> { Lmax = 3; Gmax = 1; Amax = 5; }
+                        case 2 -> { Lmax = 2; Gmax = 0.875f; Amax = 3; }
+                        case 3 -> { Lmax = 1.75f; Gmax = 0.875f; Amax = 1.75f; }
+                        case 4 -> { Lmax = 1.5f; Gmax = 0.75f; Amax = 1.5f; }
+                        case 5 -> { Lmax = 1; Gmax = 0.75f; Amax = 0.75f; }
+                    }
+                } else if (trackType.equals("31-foot Chord")) {
+                    switch (trackClass) {
+                        case 1 -> { Lmax = 0; Gmax = 1; Amax = 0; }  // N/A for L and A
+                        case 2 -> { Lmax = 0; Gmax = 0.875f; Amax = 0; }  // N/A for L and A
+                        case 3 -> { Lmax = 1; Gmax = 0.875f; Amax = 1.25f; }
+                        case 4 -> { Lmax = 1; Gmax = 0.75f; Amax = 1; }
+                        case 5 -> { Lmax = 1; Gmax = 0.75f; Amax = 0.5f; }
+                    }
+                } else if (trackType.equals("62-foot Chord")) {
+                    switch (trackClass) {
+                        case 1 -> { Lmax = 3; Gmax = 1; Amax = 5; }
+                        case 2 -> { Lmax = 2.75f; Gmax = 0.875f; Amax = 3; }
+                        case 3 -> { Lmax = 2.25f; Gmax = 0.875f; Amax = 1.75f; }
+                        case 4 -> { Lmax = 2; Gmax = 0.75f; Amax = 1.5f; }
+                        case 5 -> { Lmax = 1.25f; Gmax = 0.75f; Amax = 0.625f; }
+                    }
+                } else if (trackType.equals("31-foot Qualified Cant Chord")) {
+                    switch (trackClass) {
+                        case 1 -> { Lmax = 0; Gmax = 1; Amax = 0; }  // N/A for L and A
+                        case 2 -> { Lmax = 0; Gmax = 0.875f; Amax = 0; }  // N/A for L and A
+                        case 3 -> { Lmax = 1; Gmax = 0.875f; Amax = 1.25f; }
+                        case 4 -> { Lmax = 1; Gmax = 0.75f; Amax = 1; }
+                        case 5 -> { Lmax = 1; Gmax = 0.75f; Amax = 0.5f; }
+                    }
+                } else if (trackType.equals("62-foot Qualified Cant Chord")) {
+                    switch (trackClass) {
+                        case 1 -> { Lmax = 2.25f; Gmax = 1; Amax = 1.25f; }
+                        case 2 -> { Lmax = 2.25f; Gmax = 0.875f; Amax = 1.25f; }
+                        case 3 -> { Lmax = 1.75f; Gmax = 0.875f; Amax = 1.25f; }
+                        case 4 -> { Lmax = 1.25f; Gmax = 0.75f; Amax = 0.875f; }
+                        case 5 -> { Lmax = 1; Gmax = 0.75f; Amax = 0.625f; }
+                    }
+                }
+
+                // Call the calculation method with the dynamically set allowances
+                defaultTGI(l, a, g, Lmax, Amax, Gmax);
+                defaultWindow.close();
+            } catch (Exception ex) {
+                showError("Invalid input. Please enter valid numbers.");
+            }
         });
 
         BorderPane bottomPane = new BorderPane();
@@ -1124,20 +1144,32 @@ public class RailGeometry {
     // output methods, assumes that we have the components necessary for final computation, displays output
     
     private void defaultTGI(float l, float a, float g, float allowanceL, float allowanceA, float allowanceG) {
+        if (allowanceL == 0) {
+            l = 0;
+        }
+        if (allowanceA == 0) {
+            a = 0;
+        }
+        if (allowanceG == 0) {
+            g = 0;
+        }
+
         float exceedL = l - allowanceL > 0 ? l - allowanceL : 0;
         float exceedA = a - allowanceA > 0 ? a - allowanceA : 0;
         float exceedG = g - allowanceG > 0 ? g - allowanceG : 0;
 
         tgiOut = 100 - ((l + a + g) / (allowanceL + allowanceA + allowanceG)) * 100;
         tgiOut = Math.round(tgiOut);
+
         if (tgiOut < 0) {
             condition = "Very Poor";
             recommendedCourse = "Immediate shutdown or major repairs required";
         } else {
-        condition = assignments[(int) Math.min(Math.max(tgiOut / 20, 0), 4)];
-        recommendedCourse = recommendation[Math.min((int) tgiOut / 20, 4)];
+            condition = assignments[(int) Math.min(Math.max(tgiOut / 20, 0), 4)];
+            recommendedCourse = recommendation[Math.min((int) tgiOut / 20, 4)];
         }
 
+        // Create result window
         resultStage = new Stage();
         BorderPane resultPane = new BorderPane();
         resultPane.setPadding(new Insets(10));
