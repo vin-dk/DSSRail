@@ -63,6 +63,22 @@ public class RailGeometry {
         return stdDev;
     }
     
+    private List<float[]> transposeData(List<float[]> data) {
+    	//helper method, flips into arrays
+        int rows = data.size();
+        int cols = data.get(0).length;
+        List<float[]> transposed = new ArrayList<>();
+
+        for (int i = 0; i < cols; i++) {
+            float[] newRow = new float[rows];
+            for (int j = 0; j < rows; j++) {
+                newRow[j] = data.get(j)[i];
+            }
+            transposed.add(newRow);
+        }
+        return transposed;
+    }
+    
  // method to calculate the average standard deviation (σH)(assumes implementation as described) 
     public static double genH(float[] HLEFT, float[] HRIGHT) {
         double stdDevLeft = stdv(HLEFT);
@@ -87,16 +103,23 @@ public class RailGeometry {
         return stdv(Si);
     }
     
-    public static float calc80(float[] values) { //helper method for 80th percentile 
+    public static double calc80(double[] values) {
         if (values == null || values.length == 0) {
             throw new IllegalArgumentException("Array must contain at least one element.");
         }
-        
-        Arrays.sort(values);
 
-        int index = (int) Math.ceil(0.8 * values.length) - 1; 
+        Arrays.sort(values); 
 
-        return values[index];
+        double index = 0.8 * (values.length - 1);  
+        int lowerIndex = (int) Math.floor(index);
+        int upperIndex = (int) Math.ceil(index);
+
+        if (lowerIndex == upperIndex) {
+            return values[lowerIndex];  
+        } else {
+            double weight = index - lowerIndex;
+            return values[lowerIndex] * (1 - weight) + values[upperIndex] * weight;
+        }
     }
     
 
@@ -510,7 +533,8 @@ public class RailGeometry {
                             gaugeList.add(new float[]{g});
                         }
                     } catch (IOException | NullPointerException ex) {
-                        showError("Error reading Excel file or invalid format. Ensure proper L, A, G values.");
+                        showError("Error reading Excel file or invalid format. Ensure proper L, A, G values. Refer to info panel"
+                        		+ " for help");
                     }
 
                     // After collecting data, perform calculations
@@ -547,7 +571,7 @@ public class RailGeometry {
         gridPane.setVgap(10);
         gridPane.setAlignment(Pos.CENTER_LEFT);
 
-        Label notice = new Label("All measurements in mm");
+        Label notice = new Label("All measurements in inches");
         notice.setStyle("-fx-font-weight: bold;");
 
         Label longitudinalLabel = new Label("Longitudinal Deviation: ");
@@ -659,7 +683,7 @@ public class RailGeometry {
         gridPane.setVgap(10);
         gridPane.setAlignment(Pos.CENTER_LEFT);
 
-        Label notice = new Label("All measurements in mm");
+        Label notice = new Label("All measurements in inches");
         notice.setStyle("-fx-font-weight: bold;");
 
         Label longitudinalLabel = new Label("Longitudinal Deviation: ");
@@ -731,33 +755,87 @@ public class RailGeometry {
         gridPane.setVgap(10);
         gridPane.setAlignment(Pos.CENTER_LEFT);
 
-        Label notice = new Label("All measurements in mm");
+        Label notice = new Label("All measurements in inches");
         notice.setStyle("-fx-font-weight: bold;");
 
-        Label rangeLabel = new Label("Enter Range of Values (Comma Separated): ");
-        TextField rangeInput = new TextField();
-        configureInputField(rangeInput);
-
-        gridPane.add(notice, 0, 0);
-        gridPane.add(rangeLabel, 0, 1);
-        gridPane.add(rangeInput, 1, 1);
+        Label fileLabel = new Label("Select Excel File: ");
+        Button fileButton = new Button("Browse...");
+        Label selectedFileLabel = new Label("No file selected");
         
+        FileChooser fileChooser = new FileChooser();
+        fileChooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Excel Files", "*.xlsx"));
+
+        fileButton.setOnAction(e -> {
+            File selectedFile = fileChooser.showOpenDialog(NTQIWindow);
+            if (selectedFile != null) {
+                selectedFileLabel.setText(selectedFile.getAbsolutePath());
+            }
+        });
+
+        // Add components to grid
+        gridPane.add(notice, 0, 0);
+        gridPane.add(fileLabel, 0, 1);
+        gridPane.add(fileButton, 1, 1);
+        gridPane.add(selectedFileLabel, 1, 2);
+
         pane.setCenter(gridPane);
 
         Button enterButton = new Button("Enter");
         enterButton.setOnAction(e -> {
             try {
-                float[] values = parseInputToFloatArray(rangeInput.getText());
+                // Validate file selection
+                if (!selectedFileLabel.getText().equals("No file selected")) {
+                    File excelFile = new File(selectedFileLabel.getText());
+                    List<float[]> segmentDataList = new ArrayList<>();
 
-                double stdDev = stdv(values);
-                float percentile80 = calc80(values);
+                    // Use Apache POI to read Excel
+                    try (FileInputStream fis = new FileInputStream(excelFile);
+                         Workbook workbook = new XSSFWorkbook(fis)) {
+                        Sheet sheet = workbook.getSheetAt(0);
 
-                varTGIntqi((float) stdDev, percentile80);
-                NTQIWindow.close();
-            } catch (NumberFormatException ex) {
-                showError("Please enter valid numerical values.");
-            } catch (IllegalArgumentException ex) {
-                showError(ex.getMessage());
+                        int rowCount = sheet.getPhysicalNumberOfRows();
+                        int colCount = sheet.getRow(0).getPhysicalNumberOfCells();
+
+                        // Ensure square matrix
+                        for (Row row : sheet) {
+                            if (row.getPhysicalNumberOfCells() != colCount) {
+                                throw new IllegalArgumentException("Each row must have the same number of columns.");
+                            }
+                            float[] segmentValues = new float[colCount];
+                            for (int i = 0; i < colCount; i++) {
+                                segmentValues[i] = (float) row.getCell(i).getNumericCellValue();
+                            }
+                            segmentDataList.add(segmentValues);
+                        }
+
+                        // Transpose the data so each column is a segment
+                        List<float[]> transposedData = transposeData(segmentDataList);
+
+                        // Calculate standard deviation for each segment
+                        List<Double> stdDevs = new ArrayList<>();
+                        for (float[] segment : transposedData) {
+                            stdDevs.add(stdv(segment));
+                        }
+
+                        // Get the 80th percentile of the standard deviations
+                        double[] stdDevArray = stdDevs.stream().mapToDouble(Double::doubleValue).toArray();
+                        float[] stdDevFloatArray = new float[stdDevArray.length];
+                        for (int i = 0; i < stdDevArray.length; i++) {
+                            stdDevFloatArray[i] = (float) stdDevArray[i];
+                        }
+                        double percentile80 = calc80(stdDevArray);
+
+                        // Output scores for each segment
+                        varTGIntqi(stdDevs, percentile80);
+
+                    } catch (IOException | NullPointerException ex) {
+                        showError("Error reading Excel file or invalid format. Refer to info panel for help.");
+                    }
+                } else {
+                    showError("Please select an Excel file.");
+                }
+            } catch (Exception ex) {
+                showError("Invalid input. Please enter valid numbers.");
             }
         });
 
@@ -783,7 +861,7 @@ public class RailGeometry {
         gridPane.setVgap(10);
         gridPane.setAlignment(Pos.CENTER_LEFT);
 
-        Label notice = new Label("All measurements in mm");
+        Label notice = new Label("All measurements in inches");
         notice.setStyle("-fx-font-weight: bold;");
 
         // Number of Instances
@@ -864,7 +942,7 @@ public class RailGeometry {
         gridPane.setVgap(10);
         gridPane.setAlignment(Pos.CENTER_LEFT);
 
-        Label notice = new Label("All measurements in mm");
+        Label notice = new Label("All measurements in in");
         notice.setStyle("-fx-font-weight: bold;");
 
         Label ZLabel = new Label("Longitudinal Level Values (Comma Separated list): ");
@@ -936,7 +1014,7 @@ public class RailGeometry {
         gridPane.setVgap(10);
         gridPane.setAlignment(Pos.CENTER_LEFT);
 
-        Label notice = new Label("All measurements in mm");
+        Label notice = new Label("All measurements in in");
         notice.setStyle("-fx-font-weight: bold;");
 
         Label gaugeLabel = new Label("Gauge (Comma Separated list): ");
@@ -1023,7 +1101,7 @@ public class RailGeometry {
         gridPane.setVgap(10);
         gridPane.setAlignment(Pos.CENTER_LEFT);
 
-        Label notice = new Label("All measurements in mm");
+        Label notice = new Label("All measurements in in");
         notice.setStyle("-fx-font-weight: bold;");
 
         // Radio buttons for speed selection
@@ -1113,7 +1191,7 @@ public class RailGeometry {
         gridPane.setVgap(10);
         gridPane.setAlignment(Pos.CENTER_LEFT);
 
-        Label notice = new Label("All measurements in inches");
+        Label notice = new Label("All measurements in in");
         notice.setStyle("-fx-font-weight: bold;");
 
         Label classLabel = new Label("Class of Track: ");
@@ -1357,10 +1435,7 @@ public class RailGeometry {
         resultStage.show();
     }
     
-    private void varTGIntqi (float stddev, float eightystddev) {
-    	double factor = stddev/eightystddev; 
-    	tgiOut =(float) (10 * Math.pow(0.675, factor));
-    	
+    private void varTGIntqi(List<Double> stdDevs, double percentile80) {
         resultStage = new Stage();
         BorderPane resultPane = new BorderPane();
         resultPane.setPadding(new Insets(10));
@@ -1369,11 +1444,18 @@ public class RailGeometry {
         resultBox.setPadding(new Insets(10));
         resultBox.setAlignment(Pos.CENTER_LEFT);
 
-        resultBox.getChildren().add(new Label("TGI Output: " + tgiOut));
+        // Output TGI score for each segment
+        for (int i = 0; i < stdDevs.size(); i++) {
+            double stddev = stdDevs.get(i);
+            double factor = stddev / percentile80;
+            float tgiOut = (float) (10 * Math.pow(0.675, factor));
+
+            resultBox.getChildren().add(new Label("Segment " + (i + 1) + " TGI Output: " + tgiOut));
+        }
 
         resultPane.setCenter(resultBox);
 
-        Scene resultScene = new Scene(resultPane, 400, 250);
+        Scene resultScene = new Scene(resultPane, 400, 400);
         resultStage.setScene(resultScene);
         resultStage.setTitle("Results");
         resultStage.show();
