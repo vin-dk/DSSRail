@@ -37,7 +37,21 @@ public class RailGeometry {
     public String[] recommendation = {"Immediate shutdown or major repairs required", "Urgent repairs necessary; restrict speeds",
             "Immediate corrective actions planned", "Schedule preventive maintenance", "Routine monitoring, no immediate action required"};
    
-
+ // Helper method to classify the TGI
+    private String classifyTGI(float tgi) {
+        if (tgi >= 80) {
+            return "Excellent Condition";
+        } else if (tgi >= 60) {
+            return "Good Condition";
+        } else if (tgi >= 40) {
+            return "Fair Condition";
+        } else if (tgi >= 20) {
+            return "Poor Condition";
+        } else {
+            return "Very Poor Condition";
+        }
+    }
+     
     private String userChoice = "None";
     
     public static double stdv(float[] values) { // helper method for calculating standard deviation 
@@ -221,72 +235,6 @@ public class RailGeometry {
         instanceWindow.showAndWait();
     }
 
-    private void collectInstanceData(List<float[]> HLeftList, List<float[]> HRightList, List<float[]> crossLevelsList, List<float[]> gaugesList, List<float[]> horizontalDeviationsList, int instanceNumber) {
-    	//helper function, fetch list for instances, swedenQ
-        Stage instanceWindow = new Stage();
-        BorderPane pane = new BorderPane();
-        pane.setPadding(new Insets(10));
-
-        GridPane gridPane = new GridPane();
-        gridPane.setPadding(new Insets(10));
-        gridPane.setHgap(10);
-        gridPane.setVgap(10);
-        gridPane.setAlignment(Pos.CENTER_LEFT);
-
-        Label instanceLabel = new Label("Instance " + instanceNumber);
-        instanceLabel.setStyle("-fx-font-weight: bold;");
-
-        Label hLeftLabel = new Label("H Left (Comma Separated List): ");
-        TextField hLeftInput = new TextField();
-
-        Label hRightLabel = new Label("H Right (Comma Separated List): ");
-        TextField hRightInput = new TextField();
-
-        Label crossLevelsLabel = new Label("Cross Levels (Comma Separated List): ");
-        TextField crossLevelsInput = new TextField();
-
-        Label gaugesLabel = new Label("Gauges (Comma Separated List): ");
-        TextField gaugesInput = new TextField();
-
-        Label horizontalDeviationsLabel = new Label("Horizontal Deviations (Comma Separated List): ");
-        TextField horizontalDeviationsInput = new TextField();
-
-        Button submitButton = new Button("Submit");
-
-        submitButton.setOnAction(e -> {
-            try {
-                HLeftList.add(parseInputToFloatArray(hLeftInput.getText()));
-                HRightList.add(parseInputToFloatArray(hRightInput.getText()));
-                crossLevelsList.add(parseInputToFloatArray(crossLevelsInput.getText()));
-                gaugesList.add(parseInputToFloatArray(gaugesInput.getText()));
-                horizontalDeviationsList.add(parseInputToFloatArray(horizontalDeviationsInput.getText()));
-                instanceWindow.close();
-            } catch (NumberFormatException ex) {
-                showError("Please enter valid numerical values.");
-            }
-        });
-
-        gridPane.add(instanceLabel, 0, 0);
-        gridPane.add(hLeftLabel, 0, 1);
-        gridPane.add(hLeftInput, 1, 1);
-        gridPane.add(hRightLabel, 0, 2);
-        gridPane.add(hRightInput, 1, 2);
-        gridPane.add(crossLevelsLabel, 0, 3);
-        gridPane.add(crossLevelsInput, 1, 3);
-        gridPane.add(gaugesLabel, 0, 4);
-        gridPane.add(gaugesInput, 1, 4);
-        gridPane.add(horizontalDeviationsLabel, 0, 5);
-        gridPane.add(horizontalDeviationsInput, 1, 5);
-        gridPane.add(submitButton, 1, 6);
-
-        pane.setCenter(gridPane);
-
-        Scene scene = new Scene(pane, 400, 300);
-        instanceWindow.setScene(scene);
-        instanceWindow.setTitle("Instance " + instanceNumber + " Input");
-        instanceWindow.showAndWait();
-    }
-    
     private float[] getTrackClassLimits(int trackClass) {
     	//helper function, defines track class limits
         switch (trackClass) {
@@ -872,7 +820,7 @@ public class RailGeometry {
 
         Label notice = new Label("All measurements in inches");
         notice.setStyle("-fx-font-weight: bold;");
-        
+
         Label classLabel = new Label("Track Class: ");
         ComboBox<String> classCombo = new ComboBox<>();
         classCombo.getItems().addAll("1", "2", "3", "4", "5");
@@ -912,15 +860,14 @@ public class RailGeometry {
                          Workbook workbook = new XSSFWorkbook(fis)) {
                         Sheet sheet = workbook.getSheetAt(0);
 
+                        // Ensure the data is rectangular and correctly separated into instances
                         int totalColumns = sheet.getRow(0).getLastCellNum();
-                        int rowCount = sheet.getPhysicalNumberOfRows();
-
-                        if (totalColumns % 6 != 0) {
-                            throw new IllegalArgumentException("Invalid format: Each instance must have 5 data columns followed by an empty column.");
+                        if (totalColumns % 5 != 0) {
+                            throw new IllegalArgumentException("Invalid format: Each instance must have 5 columns.");
                         }
 
-                        // Parse each 5-column set as an instance
-                        for (int i = 0; i < totalColumns; i += 6) {
+                        int rowCount = sheet.getPhysicalNumberOfRows();
+                        for (int i = 0; i < totalColumns; i += 5) {  // Jump by 5 columns for each instance
                             List<Float> hLeft = new ArrayList<>();
                             List<Float> hRight = new ArrayList<>();
                             List<Float> crossLevels = new ArrayList<>();
@@ -929,16 +876,9 @@ public class RailGeometry {
 
                             for (Row row : sheet) {
                                 // Ensure no missing values in the block
-                                if (row.getCell(i) == null || row.getCell(i + 1) == null ||
-                                    row.getCell(i + 2) == null || row.getCell(i + 3) == null ||
-                                    row.getCell(i + 4) == null) {
-                                    throw new IllegalArgumentException("Invalid format: Missing or non-numeric value detected.");
-                                }
-
-                                // Ensure all cells are numeric
                                 for (int j = i; j < i + 5; j++) {
-                                    if (row.getCell(j).getCellType() != CellType.NUMERIC) {
-                                        throw new IllegalArgumentException("Invalid format: All cells must contain numeric values.");
+                                    if (row.getCell(j) == null || row.getCell(j).getCellType() != CellType.NUMERIC) {
+                                        throw new IllegalArgumentException("Invalid format: Missing or non-numeric value detected.");
                                     }
                                 }
 
@@ -958,7 +898,7 @@ public class RailGeometry {
                             horizontalDeviationsList.add(toPrimitiveArray(horizontalDeviations));
                         }
                     } catch (IOException | NullPointerException ex) {
-                        showError("Error reading Excel file or invalid format. Ensure proper data.");
+                        showError("Error reading Excel file or invalid format. Ensure proper data. Click info for help.");
                     }
 
                     // Pass the data to varTGIswedenQ for processing
@@ -968,7 +908,7 @@ public class RailGeometry {
                     showError("Please select an Excel file.");
                 }
             } catch (Exception ex) {
-                showError("Invalid input. Please enter valid selections.");
+                showError("Invalid input. Please enter valid selections. Click info for help.");
             }
         });
 
@@ -1333,91 +1273,120 @@ public class RailGeometry {
         ComboBox<String> typeCombo = new ComboBox<>();
         typeCombo.getItems().addAll("Line (Straight)", "31-foot Chord", "62-foot Chord", "31-foot Qualified Cant Chord", "62-foot Qualified Cant Chord");
 
-        Label longitudinalLabel = new Label("Longitudinal Deviation (L): ");
-        TextField longitudinalInput = new TextField();
-        configureInputField(longitudinalInput);
+        Label fileLabel = new Label("Select Excel File: ");
+        Button fileButton = new Button("Browse...");
+        Label selectedFileLabel = new Label("No file selected");
 
-        Label alignmentLabel = new Label("Alignment Deviation (A): ");
-        TextField alignmentInput = new TextField();
-        configureInputField(alignmentInput);
+        FileChooser fileChooser = new FileChooser();
+        fileChooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Excel Files", "*.xlsx"));
 
-        Label gaugeLabel = new Label("Gauge Deviation (G): ");
-        TextField gaugeInput = new TextField();
-        configureInputField(gaugeInput);
-        
+        fileButton.setOnAction(e -> {
+            File selectedFile = fileChooser.showOpenDialog(TGIVarWindow);
+            if (selectedFile != null) {
+                selectedFileLabel.setText(selectedFile.getAbsolutePath());
+            }
+        });
+
         gridPane.add(notice, 0, 0);
         gridPane.add(classLabel, 0, 1);
         gridPane.add(classCombo, 1, 1);
         gridPane.add(typeLabel, 0, 2);
         gridPane.add(typeCombo, 1, 2);
-        gridPane.add(longitudinalLabel, 0, 3);
-        gridPane.add(longitudinalInput, 1, 3);
-        gridPane.add(alignmentLabel, 0, 4);
-        gridPane.add(alignmentInput, 1, 4);
-        gridPane.add(gaugeLabel, 0, 5);
-        gridPane.add(gaugeInput, 1, 5);
+        gridPane.add(fileLabel, 0, 3);
+        gridPane.add(fileButton, 1, 3);
+        gridPane.add(selectedFileLabel, 1, 4);
 
         pane.setCenter(gridPane);
 
         Button enterButton = new Button("Enter");
         enterButton.setOnAction(e -> {
-            int trackClass = Integer.parseInt(classCombo.getValue());
-            String trackType = typeCombo.getValue();
-            float l = Float.parseFloat(longitudinalInput.getText());
-            float a = Float.parseFloat(alignmentInput.getText());
-            float g = Float.parseFloat(gaugeInput.getText());
+            try {
+                int trackClass = Integer.parseInt(classCombo.getValue());
+                String trackType = typeCombo.getValue();
 
-            float Lmax = 0, Gmax = 0, Amax = 0;
+                // Get max allowable deviations based on class and type
+                float Lmax = 0, Gmax = 0, Amax = 0;
 
-            if (trackType.equals("Line (Straight)")) {
-                switch (trackClass) {
-                    case 1 -> { Lmax = 3; Gmax = 1; Amax = 5; }
-                    case 2 -> { Lmax = 2; Gmax = 0.875f; Amax = 3; }
-                    case 3 -> { Lmax = 1.75f; Gmax = 0.875f; Amax = 1.75f; }
-                    case 4 -> { Lmax = 1.5f; Gmax = 0.75f; Amax = 1.5f; }
-                    case 5 -> { Lmax = 1; Gmax = 0.75f; Amax = 0.75f; }
+                switch (trackType) {
+                    case "Line (Straight)" -> {
+                        switch (trackClass) {
+                            case 1 -> { Lmax = 3; Gmax = 1; Amax = 5; }
+                            case 2 -> { Lmax = 2; Gmax = 0.875f; Amax = 3; }
+                            case 3 -> { Lmax = 1.75f; Gmax = 0.875f; Amax = 1.75f; }
+                            case 4 -> { Lmax = 1.5f; Gmax = 0.75f; Amax = 1.5f; }
+                            case 5 -> { Lmax = 1; Gmax = 0.75f; Amax = 0.75f; }
+                        }
+                    }
+                    case "31-foot Chord" -> {
+                        switch (trackClass) {
+                            case 1, 2 -> { Lmax = 0; Gmax = 1; Amax = 0; } // N/A for L and A
+                            case 3 -> { Lmax = 1; Gmax = 0.875f; Amax = 1.25f; }
+                            case 4 -> { Lmax = 1; Gmax = 0.75f; Amax = 1; }
+                            case 5 -> { Lmax = 1; Gmax = 0.75f; Amax = 0.5f; }
+                        }
+                    }
+                    case "62-foot Chord" -> {
+                        switch (trackClass) {
+                            case 1 -> { Lmax = 3; Gmax = 1; Amax = 5; }
+                            case 2 -> { Lmax = 2.75f; Gmax = 0.875f; Amax = 3; }
+                            case 3 -> { Lmax = 2.25f; Gmax = 0.875f; Amax = 1.75f; }
+                            case 4 -> { Lmax = 2; Gmax = 0.75f; Amax = 1.5f; }
+                            case 5 -> { Lmax = 1.25f; Gmax = 0.75f; Amax = 0.625f; }
+                        }
+                    }
+                    case "31-foot Qualified Cant Chord", "62-foot Qualified Cant Chord" -> {
+                        switch (trackClass) {
+                            case 1 -> { Lmax = 0; Gmax = 1; Amax = 0; } // N/A for L and A
+                            case 2 -> { Lmax = 0; Gmax = 0.875f; Amax = 0; } // N/A for L and A
+                            case 3 -> { Lmax = 1; Gmax = 0.875f; Amax = 1.25f; }
+                            case 4 -> { Lmax = 1; Gmax = 0.75f; Amax = 1; }
+                            case 5 -> { Lmax = 1; Gmax = 0.75f; Amax = 0.5f; }
+                        }
+                    }
                 }
-            }
-            else if (trackType.equals("31-foot Chord")) {
-                switch (trackClass) {
-                    case 1 -> { Lmax = 0; Gmax = 1; Amax = 0; }  // N/A for L and A
-                    case 2 -> { Lmax = 0; Gmax = 0.875f; Amax = 0; }  // N/A for L and A
-                    case 3 -> { Lmax = 1; Gmax = 0.875f; Amax = 1.25f; }
-                    case 4 -> { Lmax = 1; Gmax = 0.75f; Amax = 1; }
-                    case 5 -> { Lmax = 1; Gmax = 0.75f; Amax = 0.5f; }
-                }
-            }
-            else if (trackType.equals("62-foot Chord")) {
-                switch (trackClass) {
-                    case 1 -> { Lmax = 3; Gmax = 1; Amax = 5; }
-                    case 2 -> { Lmax = 2.75f; Gmax = 0.875f; Amax = 3; }
-                    case 3 -> { Lmax = 2.25f; Gmax = 0.875f; Amax = 1.75f; }
-                    case 4 -> { Lmax = 2; Gmax = 0.75f; Amax = 1.5f; }
-                    case 5 -> { Lmax = 1.25f; Gmax = 0.75f; Amax = 0.625f; }
-                }
-            }
-            else if (trackType.equals("31-foot Qualified Cant Chord")) {
-                switch (trackClass) {
-                    case 1 -> { Lmax = 0; Gmax = 1; Amax = 0; }  // N/A for L and A
-                    case 2 -> { Lmax = 0; Gmax = 0.875f; Amax = 0; }  // N/A for L and A
-                    case 3 -> { Lmax = 1; Gmax = 0.875f; Amax = 1.25f; }
-                    case 4 -> { Lmax = 1; Gmax = 0.75f; Amax = 1; }
-                    case 5 -> { Lmax = 1; Gmax = 0.75f; Amax = 0.5f; }
-                }
-            }
-            else if (trackType.equals("62-foot Qualified Cant Chord")) {
-                switch (trackClass) {
-                    case 1 -> { Lmax = 2.25f; Gmax = 1; Amax = 1.25f; }
-                    case 2 -> { Lmax = 2.25f; Gmax = 0.875f; Amax = 1.25f; }
-                    case 3 -> { Lmax = 1.75f; Gmax = 0.875f; Amax = 1.25f; }
-                    case 4 -> { Lmax = 1.25f; Gmax = 0.75f; Amax = 0.875f; }
-                    case 5 -> { Lmax = 1; Gmax = 0.75f; Amax = 0.625f; }
-                }
-            }
 
-            varTGIvar(l, a, g, Lmax, Amax, Gmax);
+                if (!selectedFileLabel.getText().equals("No file selected")) {
+                    File excelFile = new File(selectedFileLabel.getText());
 
-            TGIVarWindow.close();
+                    List<Float[]> instances = new ArrayList<>();
+
+                    // Use Apache POI to read Excel
+                    try (FileInputStream fis = new FileInputStream(excelFile);
+                         Workbook workbook = new XSSFWorkbook(fis)) {
+                        Sheet sheet = workbook.getSheetAt(0);
+
+                        // Ensure the Excel file has exactly 3 columns (L, A, G)
+                        if (sheet.getRow(0).getLastCellNum() != 3) {
+                            throw new IllegalArgumentException("Excel file must have exactly 3 columns (L, A, G).");
+                        }
+
+                        // Read values for each instance (each row)
+                        for (Row row : sheet) {
+                            if (row.getPhysicalNumberOfCells() < 3) {
+                                throw new IllegalArgumentException("Each row must contain exactly 3 numeric values.");
+                            }
+
+                            Float[] instance = new Float[3];
+                            instance[0] = (float) row.getCell(0).getNumericCellValue();  // L
+                            instance[1] = (float) row.getCell(1).getNumericCellValue();  // A
+                            instance[2] = (float) row.getCell(2).getNumericCellValue();  // G
+
+                            instances.add(instance);
+                        }
+
+                        // Pass data to varTGIvar to calculate and display results
+                        varTGIvar(instances, Lmax, Amax, Gmax);
+                        TGIVarWindow.close();
+
+                    } catch (IOException | IllegalArgumentException ex) {
+                        showError("Error reading Excel file or invalid format. Ensure the file has exactly 3 numeric columns.");
+                    }
+                } else {
+                    showError("Please select an Excel file.");
+                }
+            } catch (Exception ex) {
+                showError("Invalid input. Please enter valid selections.");
+            }
         });
 
         BorderPane bottomPane = new BorderPane();
@@ -1736,7 +1705,40 @@ public class RailGeometry {
         resultStage.show();
     }
     
-    private void varTGIvar(float L, float A, float G, float Lmax, float Amax, float Gmax) {
+    private void varTGIvar(List<Float[]> instances, float Lmax, float Amax, float Gmax) {
+        int satisfactoryCount = 0;  
+        List<String> results = new ArrayList<>();  
+
+        for (int i = 0; i < instances.size(); i++) {
+            Float[] instance = instances.get(i);
+            float L = instance[0], A = instance[1], G = instance[2];
+
+            float LFactor = (Lmax == 0) ? 0 : (L / Lmax) * 100;
+            float GFactor = (Gmax == 0) ? 0 : (G / Gmax) * 100;
+            float AFactor = (Amax == 0) ? 0 : (A / Amax) * 100;
+
+            float tgi = 100 - (1.0f / 3.0f) * (LFactor + GFactor + AFactor);
+            tgi = Math.max(tgi, 0); 
+
+            String classification = classifyTGI(tgi);
+
+            float lexceed = Math.max(L - Lmax, 0);
+            float aexceed = Math.max(A - Amax, 0);
+            float gexceed = Math.max(G - Gmax, 0);
+
+            if (lexceed == 0 && aexceed == 0 && gexceed == 0) {
+                satisfactoryCount++;
+            }
+
+            results.add("Instance " + (i + 1) + ": TGI = " + String.format("%.2f", tgi) 
+                        + ", Classification = " + classification 
+                        + ", L exceed: " + String.format("%.2f", lexceed) 
+                        + ", A exceed: " + String.format("%.2f", aexceed) 
+                        + ", G exceed: " + String.format("%.2f", gexceed));
+        }
+
+        float K = (float) satisfactoryCount / instances.size();
+
         resultStage = new Stage();
         BorderPane resultPane = new BorderPane();
         resultPane.setPadding(new Insets(10));
@@ -1745,64 +1747,17 @@ public class RailGeometry {
         resultBox.setPadding(new Insets(10));
         resultBox.setAlignment(Pos.CENTER_LEFT);
 
-        // Calculate each term, catching divide by zero errors
-        float LFactor, GFactor, AFactor;
-
-        try {
-            LFactor = (L / Lmax) * 100;
-        } catch (ArithmeticException e) {
-            LFactor = 0; // If Lmax is 0, set factor to 0
+        for (String result : results) {
+            resultBox.getChildren().add(new Label(result));
         }
 
-        try {
-            GFactor = (G / Gmax) * 100;
-        } catch (ArithmeticException e) {
-            GFactor = 0; // If Gmax is 0, set factor to 0
-        }
-
-        try {
-            AFactor = (A / Amax) * 100;
-        } catch (ArithmeticException e) {
-            AFactor = 0; // If Amax is 0, set factor to 0
-        }
-
-        // Calculate TGI
-        float tgi = 100 - (1.0f / 3.0f) * (LFactor + GFactor + AFactor);
-
-        // Clamp TGI to a minimum of 0
-        tgi = Math.max(tgi, 0);
-
-        // Determine TGI Classification
-        String classification;
-        if (tgi >= 80) {
-            classification = "Excellent Condition";
-        } else if (tgi >= 60) {
-            classification = "Good Condition";
-        } else if (tgi >= 40) {
-            classification = "Fair Condition";
-        } else if (tgi >= 20) {
-            classification = "Poor Condition";
-        } else {
-            classification = "Very Poor Condition";
-        }
-
-        // Calculate exceedances (negative or zero values should show as 0)
-        float lexceed = Math.max(L - Lmax, 0);
-        float aexceed = Math.max(A - Amax, 0);
-        float gexceed = Math.max(G - Gmax, 0);
-
-        // Add results to resultBox
-        resultBox.getChildren().add(new Label("TGI: " + String.format("%.2f", tgi)));
-        resultBox.getChildren().add(new Label("TGI Classification: " + classification));
-        resultBox.getChildren().add(new Label("L exceed: " + String.format("%.2f", lexceed)));
-        resultBox.getChildren().add(new Label("A exceed: " + String.format("%.2f", aexceed)));
-        resultBox.getChildren().add(new Label("G exceed: " + String.format("%.2f", gexceed)));
+        resultBox.getChildren().add(new Label("K-Value: " + String.format("%.2f", K)));
 
         resultPane.setCenter(resultBox);
 
-        Scene resultScene = new Scene(resultPane, 400, 250);
+        Scene resultScene = new Scene(resultPane, 400, 400);
         resultStage.setScene(resultScene);
-        resultStage.setTitle("Results");
+        resultStage.setTitle("TGI Variation Results");
         resultStage.show();
     }
 }
