@@ -299,6 +299,15 @@ public class RailGeometry {
         }
     }
     
+ // Helper method to convert List<Float> to float[]
+    private float[] toPrimitiveArray(List<Float> list) {
+        float[] array = new float[list.size()];
+        for (int i = 0; i < list.size(); i++) {
+            array[i] = list.get(i);
+        }
+        return array;
+    }
+    
     // main driver method
     
     public void openMenuSelection(Stage primaryStage) {
@@ -863,64 +872,112 @@ public class RailGeometry {
 
         Label notice = new Label("All measurements in inches");
         notice.setStyle("-fx-font-weight: bold;");
-
-        // Number of Instances
-        Label instanceLabel = new Label("Number of Instances: ");
-        TextField instanceInput = new TextField();
-        configurePositiveInputField(instanceInput);
-
-        // Track Length
-        Label lengthLabel = new Label("Track Length (ft): ");
-        TextField lengthInput = new TextField();
-        configurePositiveInputField(lengthInput);
-
-        // Track Class
+        
         Label classLabel = new Label("Track Class: ");
         ComboBox<String> classCombo = new ComboBox<>();
         classCombo.getItems().addAll("1", "2", "3", "4", "5");
 
+        Label fileLabel = new Label("Select Excel File: ");
+        Button fileButton = new Button("Browse...");
+        Label selectedFileLabel = new Label("No file selected");
+
+        FileChooser fileChooser = new FileChooser();
+        fileChooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Excel Files", "*.xlsx"));
+
+        fileButton.setOnAction(e -> {
+            File selectedFile = fileChooser.showOpenDialog(swedenQWindow);
+            if (selectedFile != null) {
+                selectedFileLabel.setText(selectedFile.getAbsolutePath());
+            }
+        });
+
         Button nextButton = new Button("Next");
 
-        // Go to instance input when the number of instances is provided
         nextButton.setOnAction(e -> {
             try {
-                int instances = Integer.parseInt(instanceInput.getText());
-                float trackLength = Float.parseFloat(lengthInput.getText());
                 int trackClass = Integer.parseInt(classCombo.getValue());
-
-                if (instances <= 0 || trackLength <= 0) {
-                    throw new NumberFormatException("Values must be positive.");
-                }
-
                 float[] limits = getTrackClassLimits(trackClass); // Get Hlim and Slim based on class
 
-                List<float[]> HLeftList = new ArrayList<>();
-                List<float[]> HRightList = new ArrayList<>();
-                List<float[]> crossLevelsList = new ArrayList<>();
-                List<float[]> gaugesList = new ArrayList<>();
-                List<float[]> horizontalDeviationsList = new ArrayList<>();
+                if (!selectedFileLabel.getText().equals("No file selected")) {
+                    File excelFile = new File(selectedFileLabel.getText());
 
-                // Loop through each instance and gather input
-                for (int i = 0; i < instances; i++) {
-                    collectInstanceData(HLeftList, HRightList, crossLevelsList, gaugesList, horizontalDeviationsList, i + 1);
+                    List<float[]> HLeftList = new ArrayList<>();
+                    List<float[]> HRightList = new ArrayList<>();
+                    List<float[]> crossLevelsList = new ArrayList<>();
+                    List<float[]> gaugesList = new ArrayList<>();
+                    List<float[]> horizontalDeviationsList = new ArrayList<>();
+
+                    // Use Apache POI to read Excel
+                    try (FileInputStream fis = new FileInputStream(excelFile);
+                         Workbook workbook = new XSSFWorkbook(fis)) {
+                        Sheet sheet = workbook.getSheetAt(0);
+
+                        int totalColumns = sheet.getRow(0).getLastCellNum();
+                        int rowCount = sheet.getPhysicalNumberOfRows();
+
+                        if (totalColumns % 6 != 0) {
+                            throw new IllegalArgumentException("Invalid format: Each instance must have 5 data columns followed by an empty column.");
+                        }
+
+                        // Parse each 5-column set as an instance
+                        for (int i = 0; i < totalColumns; i += 6) {
+                            List<Float> hLeft = new ArrayList<>();
+                            List<Float> hRight = new ArrayList<>();
+                            List<Float> crossLevels = new ArrayList<>();
+                            List<Float> gauges = new ArrayList<>();
+                            List<Float> horizontalDeviations = new ArrayList<>();
+
+                            for (Row row : sheet) {
+                                // Ensure no missing values in the block
+                                if (row.getCell(i) == null || row.getCell(i + 1) == null ||
+                                    row.getCell(i + 2) == null || row.getCell(i + 3) == null ||
+                                    row.getCell(i + 4) == null) {
+                                    throw new IllegalArgumentException("Invalid format: Missing or non-numeric value detected.");
+                                }
+
+                                // Ensure all cells are numeric
+                                for (int j = i; j < i + 5; j++) {
+                                    if (row.getCell(j).getCellType() != CellType.NUMERIC) {
+                                        throw new IllegalArgumentException("Invalid format: All cells must contain numeric values.");
+                                    }
+                                }
+
+                                // Collect the data from each column in the current 5-column block
+                                hLeft.add((float) row.getCell(i).getNumericCellValue());
+                                hRight.add((float) row.getCell(i + 1).getNumericCellValue());
+                                crossLevels.add((float) row.getCell(i + 2).getNumericCellValue());
+                                gauges.add((float) row.getCell(i + 3).getNumericCellValue());
+                                horizontalDeviations.add((float) row.getCell(i + 4).getNumericCellValue());
+                            }
+
+                            // Add data for the current instance
+                            HLeftList.add(toPrimitiveArray(hLeft));
+                            HRightList.add(toPrimitiveArray(hRight));
+                            crossLevelsList.add(toPrimitiveArray(crossLevels));
+                            gaugesList.add(toPrimitiveArray(gauges));
+                            horizontalDeviationsList.add(toPrimitiveArray(horizontalDeviations));
+                        }
+                    } catch (IOException | NullPointerException ex) {
+                        showError("Error reading Excel file or invalid format. Ensure proper data.");
+                    }
+
+                    // Pass the data to varTGIswedenQ for processing
+                    varTGIswedenQ(HLeftList.size(), limits[0], limits[1], HLeftList, HRightList, crossLevelsList, gaugesList, horizontalDeviationsList);
+                    swedenQWindow.close();
+                } else {
+                    showError("Please select an Excel file.");
                 }
-
-                // Pass the data to varTGIfive after all inputs are collected
-                varTGIswedenQ(instances, trackLength, limits[0], limits[1], HLeftList, HRightList, crossLevelsList, gaugesList, horizontalDeviationsList);
-                swedenQWindow.close();
-
-            } catch (NumberFormatException ex) {
-                showError("Please enter valid positive numerical values.");
+            } catch (Exception ex) {
+                showError("Invalid input. Please enter valid selections.");
             }
         });
 
         gridPane.add(notice, 0, 0);
-        gridPane.add(instanceLabel, 0, 1);
-        gridPane.add(instanceInput, 1, 1);
-        gridPane.add(lengthLabel, 0, 2);
-        gridPane.add(lengthInput, 1, 2);
-        gridPane.add(classLabel, 0, 3);
-        gridPane.add(classCombo, 1, 3);
+        gridPane.add(classLabel, 0, 1);
+        gridPane.add(classCombo, 1, 1);
+        gridPane.add(fileLabel, 0, 2);
+        gridPane.add(fileButton, 1, 2);
+        gridPane.add(selectedFileLabel, 1, 3);
         gridPane.add(nextButton, 1, 4);
 
         pane.setCenter(gridPane);
@@ -942,53 +999,78 @@ public class RailGeometry {
         gridPane.setVgap(10);
         gridPane.setAlignment(Pos.CENTER_LEFT);
 
-        Label notice = new Label("All measurements in in");
+        Label notice = new Label("All measurements in inches");
         notice.setStyle("-fx-font-weight: bold;");
 
-        Label ZLabel = new Label("Longitudinal Level Values (Comma Separated list): ");
-        TextField ZInput = new TextField();
-        
-        Label YLabel = new Label("Alignment Values(Comma Separated list): ");
-        TextField YInput = new TextField();
+        Label fileLabel = new Label("Select Excel File: ");
+        Button fileButton = new Button("Browse...");
+        Label selectedFileLabel = new Label("No file selected");
 
-        Label WLabel = new Label("Twist values (Comma Separated list): ");
-        TextField WInput = new TextField();
+        FileChooser fileChooser = new FileChooser();
+        fileChooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Excel Files", "*.xlsx"));
 
-        Label ELabel = new Label("Track Gauge values (Comma Separated list): ");
-        TextField EInput = new TextField();
+        fileButton.setOnAction(e -> {
+            File selectedFile = fileChooser.showOpenDialog(jCoeffWindow);
+            if (selectedFile != null) {
+                selectedFileLabel.setText(selectedFile.getAbsolutePath());
+            }
+        });
 
         gridPane.add(notice, 0, 0);
-        gridPane.add(ZLabel, 0, 1);
-        gridPane.add(ZInput, 1, 1);
-        gridPane.add(YLabel, 0, 2);
-        gridPane.add(YInput, 1, 2);
-        gridPane.add(WLabel, 0, 3);
-        gridPane.add(WInput, 1, 3);
-        gridPane.add(ELabel, 0, 4);
-        gridPane.add(EInput, 1, 4);
-       
+        gridPane.add(fileLabel, 0, 1);
+        gridPane.add(fileButton, 1, 1);
+        gridPane.add(selectedFileLabel, 1, 2);
+
         pane.setCenter(gridPane);
 
         Button enterButton = new Button("Enter");
         enterButton.setOnAction(e -> {
-            try {
-                float[] Z = parseInputToFloatArray(ZInput.getText());
-                float[] Y = parseInputToFloatArray(YInput.getText());
-                float[] W = parseInputToFloatArray(WInput.getText());
-                float[] E = parseInputToFloatArray(EInput.getText());
-                
-                float SDz = (float)stdv(Z);
-                float SDy = (float)stdv(Y);
-                float SDw = (float)stdv(W);
-                float SDe = (float)stdv(E);
-                varTGIjCoeff(SDz, SDy, SDw, SDe);
-                jCoeffWindow.close();
-            } catch (NumberFormatException ex) {
-                // Handle number format exceptions or any other parsing errors
-                showError("Please enter valid numerical values.");
-            } catch (IllegalArgumentException ex) {
-                // Handle cases where input arrays are of different sizes
-                showError(ex.getMessage());
+            if (!selectedFileLabel.getText().equals("No file selected")) {
+                File excelFile = new File(selectedFileLabel.getText());
+
+                try (FileInputStream fis = new FileInputStream(excelFile);
+                     Workbook workbook = new XSSFWorkbook(fis)) {
+                    
+                    Sheet sheet = workbook.getSheetAt(0);
+
+                    if (sheet.getRow(0).getLastCellNum() != 4) {
+                        throw new IllegalArgumentException("Excel file must have exactly 4 columns.");
+                    }
+
+                    List<Float> Z = new ArrayList<>();
+                    List<Float> Y = new ArrayList<>();
+                    List<Float> W = new ArrayList<>();
+                    List<Float> E = new ArrayList<>();
+
+                    for (Row row : sheet) {
+                        if (row.getPhysicalNumberOfCells() < 4) {
+                            throw new IllegalArgumentException("Each row must have exactly 4 values.");
+                        }
+
+                        Z.add((float) row.getCell(0).getNumericCellValue());
+                        Y.add((float) row.getCell(1).getNumericCellValue());
+                        W.add((float) row.getCell(2).getNumericCellValue());
+                        E.add((float) row.getCell(3).getNumericCellValue());
+                    }
+
+                    float[] ZArray = toPrimitiveArray(Z);
+                    float[] YArray = toPrimitiveArray(Y);
+                    float[] WArray = toPrimitiveArray(W);
+                    float[] EArray = toPrimitiveArray(E);
+
+                    float SDz = (float) stdv(ZArray);
+                    float SDy = (float) stdv(YArray);
+                    float SDw = (float) stdv(WArray);
+                    float SDe = (float) stdv(EArray);
+
+                    varTGIjCoeff(SDz, SDy, SDw, SDe);
+                    jCoeffWindow.close();
+
+                } catch (IOException | IllegalArgumentException ex) {
+                    showError("Error reading Excel file or invalid format. Ensure the file has exactly 4 numeric columns with equal lengths. Press info for help.");
+                }
+            } else {
+                showError("Please select an Excel file.");
             }
         });
 
@@ -1003,7 +1085,7 @@ public class RailGeometry {
         jCoeffWindow.show();
     }
     
-    private void openCNWindow() { // this allows user input for testing. The list values need to be read in via excel.
+    private void openCNWindow() {
         Stage CNWindow = new Stage();
         BorderPane pane = new BorderPane();
         pane.setPadding(new Insets(10));
@@ -1014,68 +1096,88 @@ public class RailGeometry {
         gridPane.setVgap(10);
         gridPane.setAlignment(Pos.CENTER_LEFT);
 
-        Label notice = new Label("All measurements in in");
+        Label notice = new Label("All measurements in inches");
         notice.setStyle("-fx-font-weight: bold;");
 
-        Label gaugeLabel = new Label("Gauge (Comma Separated list): ");
-        TextField gaugeInput = new TextField();
-        
-        Label crossLevelLabel = new Label("Cross Level (Comma Separated list): ");
-        TextField crossLevelInput = new TextField();
+        Label fileLabel = new Label("Select Excel File: ");
+        Button fileButton = new Button("Browse...");
+        Label selectedFileLabel = new Label("No file selected");
 
-        Label leftSurfaceLabel = new Label("Left Surface (Comma Separated list): ");
-        TextField leftSurfaceInput = new TextField();
+        FileChooser fileChooser = new FileChooser();
+        fileChooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Excel Files", "*.xlsx"));
 
-        Label rightSurfaceLabel = new Label("Right Surface (Comma Separated list): ");
-        TextField rightSurfaceInput = new TextField();
+        fileButton.setOnAction(e -> {
+            File selectedFile = fileChooser.showOpenDialog(CNWindow);
+            if (selectedFile != null) {
+                selectedFileLabel.setText(selectedFile.getAbsolutePath());
+            }
+        });
 
-        Label leftAlignmentLabel = new Label("Left Alignment (Comma Separated list): ");
-        TextField leftAlignmentInput = new TextField();
-
-        Label rightAlignmentLabel = new Label("Right Alignment (Comma Separated list): ");
-        TextField rightAlignmentInput = new TextField();
-        
         gridPane.add(notice, 0, 0);
-        gridPane.add(gaugeLabel, 0, 1);
-        gridPane.add(gaugeInput, 1, 1);
-        gridPane.add(crossLevelLabel, 0, 2);
-        gridPane.add(crossLevelInput, 1, 2);
-        gridPane.add(leftSurfaceLabel, 0, 3);
-        gridPane.add(leftSurfaceInput, 1, 3);
-        gridPane.add(rightSurfaceLabel, 0, 4);
-        gridPane.add(rightSurfaceInput, 1, 4);
-        gridPane.add(leftAlignmentLabel, 0, 5);
-        gridPane.add(leftAlignmentInput, 1, 5);
-        gridPane.add(rightAlignmentLabel, 0, 6);
-        gridPane.add(rightAlignmentInput, 1, 6);
+        gridPane.add(fileLabel, 0, 1);
+        gridPane.add(fileButton, 1, 1);
+        gridPane.add(selectedFileLabel, 1, 2);
 
         pane.setCenter(gridPane);
 
         Button enterButton = new Button("Enter");
         enterButton.setOnAction(e -> {
-            try {
-                float[] gauges = parseInputToFloatArray(gaugeInput.getText());
-                float[] crossLevels = parseInputToFloatArray(crossLevelInput.getText());
-                float[] leftSurfaces = parseInputToFloatArray(leftSurfaceInput.getText());
-                float[] rightSurfaces = parseInputToFloatArray(rightSurfaceInput.getText());
-                float[] leftAlignments = parseInputToFloatArray(leftAlignmentInput.getText());
-                float[] rightAlignments = parseInputToFloatArray(rightAlignmentInput.getText());
-                
-                float stdvGauge = (float)stdv(gauges);
-                float stdvCross = (float)stdv(crossLevels);
-                float stdvLeftS = (float)stdv(leftSurfaces);
-                float stdvRightS = (float)stdv(rightSurfaces);
-                float stdvLeftA = (float)stdv(leftAlignments);
-                float stdvRightA = (float)stdv(rightAlignments);
+            if (!selectedFileLabel.getText().equals("No file selected")) {
+                File excelFile = new File(selectedFileLabel.getText());
 
-                varTGIcn(stdvGauge, stdvCross, stdvLeftA, stdvRightA, stdvLeftS, stdvRightS);
-                CNWindow.close();
-            } catch (NumberFormatException ex) {
-                // Handle number format exceptions or any other parsing errors
-                showError("Please enter valid numerical values.");
-            } catch (IllegalArgumentException ex) {
-                // Handle cases where input arrays are of different sizes
-                showError(ex.getMessage());
+                try (FileInputStream fis = new FileInputStream(excelFile);
+                     Workbook workbook = new XSSFWorkbook(fis)) {
+                    
+                    Sheet sheet = workbook.getSheetAt(0);
+
+                    // Ensure the data has exactly 6 columns
+                    if (sheet.getRow(0).getLastCellNum() != 6) {
+                        throw new IllegalArgumentException("Excel file must have exactly 6 columns.");
+                    }
+
+                    List<Float> gauges = new ArrayList<>();
+                    List<Float> crossLevels = new ArrayList<>();
+                    List<Float> leftSurfaces = new ArrayList<>();
+                    List<Float> rightSurfaces = new ArrayList<>();
+                    List<Float> leftAlignments = new ArrayList<>();
+                    List<Float> rightAlignments = new ArrayList<>();
+
+                    int rowCount = sheet.getPhysicalNumberOfRows();
+                    for (Row row : sheet) {
+                        if (row.getPhysicalNumberOfCells() < 6) {
+                            throw new IllegalArgumentException("Each row must contain exactly 6 numeric values.");
+                        }
+
+                        gauges.add((float) row.getCell(0).getNumericCellValue());
+                        crossLevels.add((float) row.getCell(1).getNumericCellValue());
+                        leftSurfaces.add((float) row.getCell(2).getNumericCellValue());
+                        rightSurfaces.add((float) row.getCell(3).getNumericCellValue());
+                        leftAlignments.add((float) row.getCell(4).getNumericCellValue());
+                        rightAlignments.add((float) row.getCell(5).getNumericCellValue());
+                    }
+
+                    float[] gaugeArray = toPrimitiveArray(gauges);
+                    float[] crossLevelArray = toPrimitiveArray(crossLevels);
+                    float[] leftSurfaceArray = toPrimitiveArray(leftSurfaces);
+                    float[] rightSurfaceArray = toPrimitiveArray(rightSurfaces);
+                    float[] leftAlignmentArray = toPrimitiveArray(leftAlignments);
+                    float[] rightAlignmentArray = toPrimitiveArray(rightAlignments);
+
+                    float stdvGauge = (float) stdv(gaugeArray);
+                    float stdvCross = (float) stdv(crossLevelArray);
+                    float stdvLeftS = (float) stdv(leftSurfaceArray);
+                    float stdvRightS = (float) stdv(rightSurfaceArray);
+                    float stdvLeftA = (float) stdv(leftAlignmentArray);
+                    float stdvRightA = (float) stdv(rightAlignmentArray);
+
+                    varTGIcn(stdvGauge, stdvCross, stdvLeftA, stdvRightA, stdvLeftS, stdvRightS);
+                    CNWindow.close();
+
+                } catch (IOException | IllegalArgumentException ex) {
+                    showError("Error reading Excel file or invalid format. Ensure the file has exactly 6 numeric columns with equal lengths. Press info for help.");
+                }
+            } else {
+                showError("Please select an Excel file.");
             }
         });
 
@@ -1089,6 +1191,7 @@ public class RailGeometry {
         CNWindow.setTitle("CN Input");
         CNWindow.show();
     }
+
     
     private void openTGIWindow() {
         Stage TGIWindow = new Stage();
@@ -1101,71 +1204,99 @@ public class RailGeometry {
         gridPane.setVgap(10);
         gridPane.setAlignment(Pos.CENTER_LEFT);
 
-        Label notice = new Label("All measurements in in");
+        Label notice = new Label("All measurements in mm");
         notice.setStyle("-fx-font-weight: bold;");
 
-        // Radio buttons for speed selection
         ToggleGroup speedGroup = new ToggleGroup();
         RadioButton above105 = new RadioButton("> 105 kph");
         above105.setToggleGroup(speedGroup);
         RadioButton below105 = new RadioButton("< 105 kph");
         below105.setToggleGroup(speedGroup);
         
-        Label hLeftLabel = new Label("Uneveness Level (Comma Separated list): ");
-        TextField hLeftInput = new TextField();
+        Label fileLabel = new Label("Select Excel File: ");
+        Button fileButton = new Button("Browse...");
+        Label selectedFileLabel = new Label("No file selected");
 
-        Label hRightLabel = new Label("Alignment (Comma Separated list): ");
-        TextField hRightInput = new TextField();
+        FileChooser fileChooser = new FileChooser();
+        fileChooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Excel Files", "*.xlsx"));
 
-        Label crossLevelsLabel = new Label("Gauge (Comma Separated list): ");
-        TextField crossLevelsInput = new TextField();
-
-        Label gaugesLabel = new Label("Twist (Comma Separated list): ");
-        TextField gaugesInput = new TextField();
+        fileButton.setOnAction(e -> {
+            File selectedFile = fileChooser.showOpenDialog(TGIWindow);
+            if (selectedFile != null) {
+                selectedFileLabel.setText(selectedFile.getAbsolutePath());
+            }
+        });
 
         gridPane.add(notice, 0, 0);
         gridPane.add(above105, 0, 1);
         gridPane.add(below105, 0, 2);
-        gridPane.add(hLeftLabel, 0, 3);
-        gridPane.add(hLeftInput, 1, 3);
-        gridPane.add(hRightLabel, 0, 4);
-        gridPane.add(hRightInput, 1, 4);
-        gridPane.add(crossLevelsLabel, 0, 5);
-        gridPane.add(crossLevelsInput, 1, 5);
-        gridPane.add(gaugesLabel, 0, 6);
-        gridPane.add(gaugesInput, 1, 6);
+        gridPane.add(fileLabel, 0, 3);
+        gridPane.add(fileButton, 1, 3);
+        gridPane.add(selectedFileLabel, 1, 4);
 
         pane.setCenter(gridPane);
 
         Button enterButton = new Button("Enter");
         enterButton.setOnAction(e -> {
             try {
-                float SDnewLong = 2.5f;
-                float SDnewAlign = 1.5f;
-                float SDnewGauge = 1.0f;
-                float SDnewTwist = 1.75f;
+                if (!selectedFileLabel.getText().equals("No file selected")) {
+                    File excelFile = new File(selectedFileLabel.getText());
 
-                float SDmainLong = above105.isSelected() ? 6.2f : 7.2f;
-                float SDmainAlign = 3.0f;
-                float SDmainGauge = 3.6f;
-                float SDmainTwist = above105.isSelected() ? 3.8f : 4.2f;
+                    List<Float> longitudinalLevelList = new ArrayList<>();
+                    List<Float> alignmentList = new ArrayList<>();
+                    List<Float> gaugeList = new ArrayList<>();
+                    List<Float> twistList = new ArrayList<>();
 
-                float[] longitudinalLevel = parseInputToFloatArray(hLeftInput.getText());
-                float[] alignment = parseInputToFloatArray(hRightInput.getText());
-                float[] gauge = parseInputToFloatArray(crossLevelsInput.getText());
-                float[] twist = parseInputToFloatArray(gaugesInput.getText());
-                
-                float SDu = (float)stdv(longitudinalLevel);
-                float SDa = (float)stdv(alignment);
-                float SDg = (float)stdv(gauge);
-                float SDt = (float)stdv(twist);
+                    try (FileInputStream fis = new FileInputStream(excelFile);
+                         Workbook workbook = new XSSFWorkbook(fis)) {
+                        Sheet sheet = workbook.getSheetAt(0);
 
-                varTGI(SDu, SDa, SDt, SDg, SDnewLong, SDnewAlign, SDnewTwist, SDnewGauge, SDmainLong, SDmainAlign, SDmainTwist,SDmainGauge);
-                TGIWindow.close();
-            } catch (NumberFormatException ex) {
-                showError("Please enter valid numerical values.");
-            } catch (IllegalArgumentException ex) {
-                showError(ex.getMessage());
+                        if (sheet.getRow(0).getLastCellNum() != 4) {
+                            throw new IllegalArgumentException("Excel file must have exactly 4 columns.");
+                        }
+
+                        for (Row row : sheet) {
+                            if (row.getPhysicalNumberOfCells() < 4) {
+                                throw new IllegalArgumentException("Each row must contain exactly 4 numeric values.");
+                            }
+
+                            longitudinalLevelList.add((float) row.getCell(0).getNumericCellValue());
+                            alignmentList.add((float) row.getCell(1).getNumericCellValue());
+                            gaugeList.add((float) row.getCell(2).getNumericCellValue());
+                            twistList.add((float) row.getCell(3).getNumericCellValue());
+                        }
+
+                        float[] longitudinalLevel = toPrimitiveArray(longitudinalLevelList);
+                        float[] alignment = toPrimitiveArray(alignmentList);
+                        float[] gauge = toPrimitiveArray(gaugeList);
+                        float[] twist = toPrimitiveArray(twistList);
+
+                        float SDu = (float) stdv(longitudinalLevel);
+                        float SDa = (float) stdv(alignment);
+                        float SDg = (float) stdv(gauge);
+                        float SDt = (float) stdv(twist);
+
+                        float SDnewLong = 2.5f;
+                        float SDnewAlign = 1.5f;
+                        float SDnewGauge = 1.0f;
+                        float SDnewTwist = 1.75f;
+
+                        float SDmainLong = above105.isSelected() ? 6.2f : 7.2f;
+                        float SDmainAlign = 3.0f;
+                        float SDmainGauge = 3.6f;
+                        float SDmainTwist = above105.isSelected() ? 3.8f : 4.2f;
+
+                        varTGI(SDu, SDa, SDt, SDg, SDnewLong, SDnewAlign, SDnewTwist, SDnewGauge, SDmainLong, SDmainAlign, SDmainTwist, SDmainGauge);
+                        TGIWindow.close();
+
+                    } catch (IOException | IllegalArgumentException ex) {
+                        showError("Error reading Excel file or invalid format. Ensure the file has exactly 4 numeric columns with equal lengths. Press info for help.");
+                    }
+                } else {
+                    showError("Please select an Excel file.");
+                }
+            } catch (Exception ex) {
+                showError("Invalid input. Please enter valid selections.");
             }
         });
 
@@ -1191,7 +1322,7 @@ public class RailGeometry {
         gridPane.setVgap(10);
         gridPane.setAlignment(Pos.CENTER_LEFT);
 
-        Label notice = new Label("All measurements in in");
+        Label notice = new Label("All measurements in inches");
         notice.setStyle("-fx-font-weight: bold;");
 
         Label classLabel = new Label("Class of Track: ");
@@ -1461,7 +1592,7 @@ public class RailGeometry {
         resultStage.show();
     }
    
-    private void varTGIswedenQ(int instances, float trackLength, float Hlim, float Slim, List<float[]> HLeftList, List<float[]> HRightList, List<float[]> crossLevelsList, List<float[]> gaugesList, List<float[]> horizontalDeviationsList) {
+    private void varTGIswedenQ(int instances, float Hlim, float Slim, List<float[]> HLeftList, List<float[]> HRightList, List<float[]> crossLevelsList, List<float[]> gaugesList, List<float[]> horizontalDeviationsList) {
         List<Float> tgiValues = new ArrayList<>();
         int satisfactoryInstances = 0;
 
@@ -1486,9 +1617,8 @@ public class RailGeometry {
             }
         }
 
-        float satisfactoryLength = satisfactoryInstances * trackLength;
-        float totalLength = instances * trackLength;
-        float K = satisfactoryLength / totalLength;
+        float satisfactoryLength = satisfactoryInstances * instances; // Use instances count to represent length
+        float K = satisfactoryLength / instances;
 
         resultStage = new Stage();
         BorderPane resultPane = new BorderPane();
@@ -1505,7 +1635,7 @@ public class RailGeometry {
 
         Scene resultScene = new Scene(resultPane, 400, 400);
         resultStage.setScene(resultScene);
-        resultStage.setTitle("Variation 5 Results");
+        resultStage.setTitle("Sweden Q Results");
         resultStage.show();
     }
     
