@@ -22,6 +22,12 @@ import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.Scanner;
+import javafx.scene.layout.HBox; 
 
 
 public class RailGeometry {
@@ -53,6 +59,43 @@ public class RailGeometry {
     }
      
     private String userChoice = "None";
+    
+ // Helper method to load text from a .txt file in the resources folder
+    private String loadTextFromResource(String resourcePath) {
+        try (InputStream inputStream = getClass().getResourceAsStream(resourcePath);
+             Scanner scanner = new Scanner(inputStream, StandardCharsets.UTF_8.name())) {
+            // Read the entire file content
+            return scanner.useDelimiter("\\A").next();
+        } catch (Exception e) {
+            e.printStackTrace();
+            return "Failed to load text.";
+        }
+    }
+    
+ // Helper Method to display the image and text in a new popup window
+    private void showInfoPopup() {
+        Stage infoStage = new Stage();
+        VBox vbox = new VBox(10);
+        vbox.setPadding(new Insets(10));
+
+        // Load the image (ensure the correct path based on your directory structure)
+        Image image = new Image(getClass().getResourceAsStream("/resources/placeholder.png"));
+        ImageView imageView = new ImageView(image);
+        imageView.setFitWidth(300); // Optional: Set image size
+        imageView.setPreserveRatio(true);
+
+        // Load the text from the resource folder
+        String textContent = loadTextFromResource("/resources/placeholder.txt");
+        Label infoText = new Label(textContent);
+
+        vbox.getChildren().addAll(imageView, infoText);
+
+        Scene scene = new Scene(vbox);
+        infoStage.setScene(scene);
+        infoStage.sizeToScene();  
+        infoStage.setTitle("Info");
+        infoStage.show();
+    }
     
     public static double stdv(float[] values) { // helper method for calculating standard deviation 
         int n = values.length;
@@ -273,7 +316,6 @@ public class RailGeometry {
 
         for (int i = 1; i <= 9; i++) {
             String optionName;
-            
             switch (i) {
                 case 1:
                     optionName = "Default";
@@ -307,10 +349,20 @@ public class RailGeometry {
             }
 
             final String selectedOption = optionName;
+            HBox optionBox = new HBox(5); // Horizontal box to hold option and help button
+
             RadioButton variantOption = new RadioButton(optionName);
             variantOption.setToggleGroup(toggleGroup);
             variantOption.setOnAction(e -> userChoice = selectedOption);
-            optionsBox.getChildren().add(variantOption);
+
+            // Create a gray "?" button
+            Button helpButton = new Button("(?)");
+            helpButton.setStyle("-fx-background-color: lightgray; -fx-text-fill: black;");
+            helpButton.setOnAction(e -> showInfoPopup());
+
+            // Add the radio button and help button to the option box
+            optionBox.getChildren().addAll(variantOption, helpButton);
+            optionsBox.getChildren().add(optionBox);
         }
 
         root.setLeft(optionsBox);
@@ -324,10 +376,10 @@ public class RailGeometry {
                     openDefaultWindow();
                     break;
                 case "Variation 1":
-                    openVarOneWindow(); 
+                    openVarOneWindow();
                     break;
                 case "Variation 2":
-                    openVarTwoWindow(); 
+                    openVarTwoWindow();
                     break;
                 case "Netherlands Track Quality Index":
                     openNTQIWindow();
@@ -360,7 +412,7 @@ public class RailGeometry {
 
         Scene scene = new Scene(root);
         primaryStage.setScene(scene);
-        primaryStage.sizeToScene();  
+        primaryStage.sizeToScene();
         primaryStage.setTitle("Menu Selection");
     }
     
