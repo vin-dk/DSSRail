@@ -79,13 +79,13 @@ public class RailGeometry {
         vbox.setPadding(new Insets(10));
 
         // Load the image (ensure the correct path based on your directory structure)
-        Image image = new Image(getClass().getResourceAsStream("/resources/placeholder.png"));
+        Image image = new Image(getClass().getResourceAsStream("/placeholder.png"));
         ImageView imageView = new ImageView(image);
         imageView.setFitWidth(300); // Optional: Set image size
         imageView.setPreserveRatio(true);
 
         // Load the text from the resource folder
-        String textContent = loadTextFromResource("/resources/placeholder.txt");
+        String textContent = loadTextFromResource("/placeholder.txt");
         Label infoText = new Label(textContent);
 
         vbox.getChildren().addAll(imageView, infoText);
@@ -349,18 +349,26 @@ public class RailGeometry {
             }
 
             final String selectedOption = optionName;
-            HBox optionBox = new HBox(5); // Horizontal box to hold option and help button
+            HBox optionBox = new HBox(5); 
 
             RadioButton variantOption = new RadioButton(optionName);
             variantOption.setToggleGroup(toggleGroup);
             variantOption.setOnAction(e -> userChoice = selectedOption);
 
-            // Create a gray "?" button
-            Button helpButton = new Button("(?)");
-            helpButton.setStyle("-fx-background-color: lightgray; -fx-text-fill: black;");
+            Button helpButton = new Button("?");
+            helpButton.setStyle(
+                "-fx-background-color: lightgray; " +   
+                "-fx-text-fill: black; " +              
+                "-fx-font-weight: bold; " +             
+                "-fx-background-radius: 15; " +         
+                "-fx-padding: 2; " +                    
+                "-fx-min-width: 20px; " +               
+                "-fx-min-height: 20px; " +              
+                "-fx-max-width: 20px; " +               
+                "-fx-max-height: 20px;"                 
+            );
             helpButton.setOnAction(e -> showInfoPopup());
 
-            // Add the radio button and help button to the option box
             optionBox.getChildren().addAll(variantOption, helpButton);
             optionsBox.getChildren().add(optionBox);
         }
