@@ -358,8 +358,9 @@ public class RailGeometry {
         BorderPane.setMargin(enterButton, new Insets(10));
         root.setBottom(bottomPane);
 
-        Scene scene = new Scene(root, 350, 350);
+        Scene scene = new Scene(root);
         primaryStage.setScene(scene);
+        primaryStage.sizeToScene();  
         primaryStage.setTitle("Menu Selection");
     }
     
@@ -511,8 +512,9 @@ public class RailGeometry {
         BorderPane.setMargin(enterButton, new Insets(10));
         pane.setBottom(bottomPane);
 
-        Scene scene = new Scene(pane, 400, 400);
+        Scene scene = new Scene(pane);
         defaultWindow.setScene(scene);
+        defaultWindow.sizeToScene();
         defaultWindow.setTitle("Default TGI Input");
         defaultWindow.show();
     }
@@ -667,9 +669,10 @@ public class RailGeometry {
         BorderPane.setMargin(enterButton, new Insets(10));
         pane.setBottom(bottomPane);
 
-        Scene scene = new Scene(pane, 500, 400);
+        Scene scene = new Scene(pane);
         VarOneWindow.setScene(scene);
-        VarOneWindow.setTitle("Variation 1 Deviation Input");
+        VarOneWindow.sizeToScene();
+        VarOneWindow.setTitle("Variation 1 Observation Input");
         VarOneWindow.show();
     }
     
@@ -806,9 +809,10 @@ public class RailGeometry {
         BorderPane.setMargin(enterButton, new Insets(10));
         pane.setBottom(bottomPane);
 
-        Scene scene = new Scene(pane, 500, 400);
+        Scene scene = new Scene(pane);
         VarTwoWindow.setScene(scene);
-        VarTwoWindow.setTitle("Variation 2 Deviation Input");
+        VarTwoWindow.sizeToScene();
+        VarTwoWindow.setTitle("Variation 2 Observation Input");
         VarTwoWindow.show();
     }
     
@@ -912,8 +916,9 @@ public class RailGeometry {
         BorderPane.setMargin(enterButton, new Insets(10));
         pane.setBottom(bottomPane);
 
-        Scene scene = new Scene(pane, 400, 300);
+        Scene scene = new Scene(pane);
         NTQIWindow.setScene(scene);
+        NTQIWindow.sizeToScene();
         NTQIWindow.setTitle("NTQI Input");
         NTQIWindow.show();
     }
@@ -1037,8 +1042,9 @@ public class RailGeometry {
 
         pane.setCenter(gridPane);
 
-        Scene scene = new Scene(pane, 400, 300);
+        Scene scene = new Scene(pane);
         swedenQWindow.setScene(scene);
+        swedenQWindow.sizeToScene();
         swedenQWindow.setTitle("Sweden Q Input");
         swedenQWindow.show();
     }
@@ -1134,8 +1140,9 @@ public class RailGeometry {
         BorderPane.setMargin(enterButton, new Insets(10));
         pane.setBottom(bottomPane);
 
-        Scene scene = new Scene(pane, 400, 400);
+        Scene scene = new Scene(pane);
         jCoeffWindow.setScene(scene);
+        jCoeffWindow.sizeToScene();
         jCoeffWindow.setTitle("JCoeff Input");
         jCoeffWindow.show();
     }
@@ -1241,8 +1248,9 @@ public class RailGeometry {
         BorderPane.setMargin(enterButton, new Insets(10));
         pane.setBottom(bottomPane);
 
-        Scene scene = new Scene(pane, 400, 400);
+        Scene scene = new Scene(pane);
         CNWindow.setScene(scene);
+        CNWindow.sizeToScene();
         CNWindow.setTitle("CN Input");
         CNWindow.show();
     }
@@ -1360,8 +1368,9 @@ public class RailGeometry {
         BorderPane.setMargin(enterButton, new Insets(10));
         pane.setBottom(bottomPane);
 
-        Scene scene = new Scene(pane, 400, 400);
+        Scene scene = new Scene(pane);
         TGIWindow.setScene(scene);
+        TGIWindow.sizeToScene();
         TGIWindow.setTitle("TGI Input");
         TGIWindow.show();
     }
@@ -1509,8 +1518,9 @@ public class RailGeometry {
         BorderPane.setMargin(enterButton, new Insets(10));
         pane.setBottom(bottomPane);
 
-        Scene scene = new Scene(pane, 400, 300);
+        Scene scene = new Scene(pane);
         TGIVarWindow.setScene(scene);
+        TGIVarWindow.sizeToScene();
         TGIVarWindow.setTitle("TGI Variation Input");
         TGIVarWindow.show();
     }
@@ -1571,8 +1581,9 @@ public class RailGeometry {
 
         resultPane.setCenter(resultBox);
 
-        Scene resultScene = new Scene(resultPane, 400, 400);
+        Scene resultScene = new Scene(resultPane);
         resultStage.setScene(resultScene);
+        resultStage.sizeToScene();
         resultStage.setTitle("Default TGI Results");
         resultStage.show();
     }
@@ -1615,8 +1626,9 @@ public class RailGeometry {
 
     			resultPane.setCenter(resultBox);
 
-    			Scene resultScene = new Scene(resultPane, 400, 250);
+    			Scene resultScene = new Scene(resultPane);
     			resultStage.setScene(resultScene);
+    			resultStage.sizeToScene();
     			resultStage.setTitle("Results");
     			resultStage.show();
     }
@@ -1670,8 +1682,9 @@ public class RailGeometry {
 
         resultPane.setCenter(resultBox);
 
-        Scene resultScene = new Scene(resultPane, 400, 300);
+        Scene resultScene = new Scene(resultPane);
         resultStage.setScene(resultScene);
+        resultStage.sizeToScene();
         resultStage.setTitle("Results");
         resultStage.show();
     }
@@ -1695,8 +1708,9 @@ public class RailGeometry {
 
         resultPane.setCenter(resultBox);
 
-        Scene resultScene = new Scene(resultPane, 400, 400);
+        Scene resultScene = new Scene(resultPane);
         resultStage.setScene(resultScene);
+        resultStage.sizeToScene();
         resultStage.setTitle("Results");
         resultStage.show();
     }
@@ -1747,8 +1761,9 @@ public class RailGeometry {
 
         resultPane.setCenter(resultBox);
 
-        Scene resultScene = new Scene(resultPane, 400, 400);
+        Scene resultScene = new Scene(resultPane);
         resultStage.setScene(resultScene);
+        resultStage.sizeToScene();
         resultStage.setTitle("Sweden Q Results");
         resultStage.show();
     }
@@ -1770,7 +1785,8 @@ public class RailGeometry {
 
         resultPane.setCenter(resultBox);
 
-        Scene resultScene = new Scene(resultPane, 400, 250);
+        Scene resultScene = new Scene(resultPane);
+        resultStage.sizeToScene();
         resultStage.setScene(resultScene);
         resultStage.setTitle("Results");
         resultStage.show();
@@ -1806,7 +1822,8 @@ public class RailGeometry {
 
         resultPane.setCenter(resultBox);
 
-        Scene resultScene = new Scene(resultPane, 400, 250);
+        Scene resultScene = new Scene(resultPane);
+        resultStage.sizeToScene();
         resultStage.setScene(resultScene);
         resultStage.setTitle("Results");
         resultStage.show();
@@ -1843,8 +1860,9 @@ public class RailGeometry {
 
         resultPane.setCenter(resultBox);
 
-        Scene resultScene = new Scene(resultPane, 400, 250);
+        Scene resultScene = new Scene(resultPane);
         resultStage.setScene(resultScene);
+        resultStage.sizeToScene();
         resultStage.setTitle("Results");
         resultStage.show();
     }
@@ -1910,8 +1928,9 @@ public class RailGeometry {
 
         resultPane.setCenter(resultBox);
 
-        Scene resultScene = new Scene(resultPane, 400, 400);
+        Scene resultScene = new Scene(resultPane);
         resultStage.setScene(resultScene);
+        resultStage.sizeToScene();
         resultStage.setTitle("TGI Variation Results");
         resultStage.show();
     }
