@@ -531,91 +531,135 @@ public class RailGeometry {
         Label notice = new Label("All measurements in inches");
         notice.setStyle("-fx-font-weight: bold;");
 
-        Label longitudinalLabel = new Label("Longitudinal Deviation: ");
+        // Track class and type selection
+        Label classLabel = new Label("Class of Track: ");
+        ComboBox<String> classCombo = new ComboBox<>();
+        classCombo.getItems().addAll("1", "2", "3", "4", "5");
+
+        Label typeLabel = new Label("Type of Track: ");
+        ComboBox<String> typeCombo = new ComboBox<>();
+        typeCombo.getItems().addAll("Line (Straight)", "31-foot Chord", "62-foot Chord", 
+                                    "31-foot Qualified Cant Chord", "62-foot Qualified Cant Chord");
+
+        Label longitudinalLabel = new Label("Longitudinal Observation: ");
         TextField longitudinalInput = new TextField();
         configureInputField(longitudinalInput);
 
-        Label alignmentLabel = new Label("Alignment Deviation: ");
+        Label alignmentLabel = new Label("Alignment Observation: ");
         TextField alignmentInput = new TextField();
         configureInputField(alignmentInput);
 
-        Label gaugeLabel = new Label("Gauge Deviation: ");
+        Label gaugeLabel = new Label("Gauge Observation: ");
         TextField gaugeInput = new TextField();
         configureInputField(gaugeInput);
 
         Label WLLabel = new Label("WL: ");
         TextField WLInput = new TextField();
         configurePositiveInputField(WLInput);
-        configureBoundedInputField(WLInput); 
 
         Label WALabel = new Label("WA: ");
         TextField WAInput = new TextField();
         configurePositiveInputField(WAInput);
-        configureBoundedInputField(WAInput); 
 
         Label WGLabel = new Label("WG: ");
         TextField WGInput = new TextField();
         configurePositiveInputField(WGInput);
-        configureBoundedInputField(WGInput); 
 
-        
-        longitudinalInput.setOnKeyPressed(e -> {
-            if (e.getCode() == KeyCode.ENTER) {
-                alignmentInput.requestFocus();
-            }
-        });
-
-        alignmentInput.setOnKeyPressed(e -> {
-            if (e.getCode() == KeyCode.ENTER) {
-                gaugeInput.requestFocus();
-            }
-        });
-
-        gaugeInput.setOnKeyPressed(e -> {
-            if (e.getCode() == KeyCode.ENTER) {
-                WLInput.requestFocus();
-            }
-        });
-
-        WLInput.setOnKeyPressed(e -> {
-            if (e.getCode() == KeyCode.ENTER) {
-                WAInput.requestFocus();
-            }
-        });
-
-        WAInput.setOnKeyPressed(e -> {
-            if (e.getCode() == KeyCode.ENTER) {
-                WGInput.requestFocus();
-            }
-        });
+        Label errorMessage = new Label();
+        errorMessage.setStyle("-fx-text-fill: red;");
 
         gridPane.add(notice, 0, 0);
-        gridPane.add(longitudinalLabel, 0, 1);
-        gridPane.add(longitudinalInput, 1, 1);
-        gridPane.add(alignmentLabel, 0, 2);
-        gridPane.add(alignmentInput, 1, 2);
-        gridPane.add(gaugeLabel, 0, 3);
-        gridPane.add(gaugeInput, 1, 3);
-        gridPane.add(WLLabel, 0, 4);
-        gridPane.add(WLInput, 1, 4);
-        gridPane.add(WALabel, 0, 5);
-        gridPane.add(WAInput, 1, 5);
-        gridPane.add(WGLabel, 0, 6);
-        gridPane.add(WGInput, 1, 6);
+        gridPane.add(classLabel, 0, 1);
+        gridPane.add(classCombo, 1, 1);
+        gridPane.add(typeLabel, 0, 2);
+        gridPane.add(typeCombo, 1, 2);
+        gridPane.add(longitudinalLabel, 0, 3);
+        gridPane.add(longitudinalInput, 1, 3);
+        gridPane.add(alignmentLabel, 0, 4);
+        gridPane.add(alignmentInput, 1, 4);
+        gridPane.add(gaugeLabel, 0, 5);
+        gridPane.add(gaugeInput, 1, 5);
+        gridPane.add(WLLabel, 0, 6);
+        gridPane.add(WLInput, 1, 6);
+        gridPane.add(WALabel, 0, 7);
+        gridPane.add(WAInput, 1, 7);
+        gridPane.add(WGLabel, 0, 8);
+        gridPane.add(WGInput, 1, 8);
+        gridPane.add(errorMessage, 1, 9);
 
         pane.setCenter(gridPane);
 
         Button enterButton = new Button("Enter");
         enterButton.setOnAction(e -> {
-            float l = Float.parseFloat(longitudinalInput.getText());
-            float a = Float.parseFloat(alignmentInput.getText());
-            float g = Float.parseFloat(gaugeInput.getText());
-            float WL = Float.parseFloat(WLInput.getText());
-            float WA = Float.parseFloat(WAInput.getText());
-            float WG = Float.parseFloat(WGInput.getText());
+            try {
+                // Parse input values
+                float l = Float.parseFloat(longitudinalInput.getText());
+                float a = Float.parseFloat(alignmentInput.getText());
+                float g = Float.parseFloat(gaugeInput.getText());
+                float WL = Float.parseFloat(WLInput.getText());
+                float WA = Float.parseFloat(WAInput.getText());
+                float WG = Float.parseFloat(WGInput.getText());
 
-            varTGIone(l, a, g, WL, WA, WG);
-            VarOneWindow.close();
+                // Get selected class and type
+                int trackClass = Integer.parseInt(classCombo.getValue());
+                String trackType = typeCombo.getValue();
+
+                // Variables for allowances (set based on track class and type)
+                float Lmax = 0, Amax = 0, Gmax = 0;
+
+                if (trackType.equals("Line (Straight)")) {
+                    switch (trackClass) {
+                        case 1 -> { Lmax = 3; Gmax = 1; Amax = 5; }
+                        case 2 -> { Lmax = 2; Gmax = 0.875f; Amax = 3; }
+                        case 3 -> { Lmax = 1.75f; Gmax = 0.875f; Amax = 1.75f; }
+                        case 4 -> { Lmax = 1.5f; Gmax = 0.75f; Amax = 1.5f; }
+                        case 5 -> { Lmax = 1; Gmax = 0.75f; Amax = 0.75f; }
+                    }
+                } else if (trackType.equals("31-foot Chord")) {
+                    switch (trackClass) {
+                        case 1 -> { Lmax = 0; Gmax = 1; Amax = 0; } // N/A for L and A
+                        case 2 -> { Lmax = 0; Gmax = 0.875f; Amax = 0; } // N/A for L and A
+                        case 3 -> { Lmax = 1; Gmax = 0.875f; Amax = 1.25f; }
+                        case 4 -> { Lmax = 1; Gmax = 0.75f; Amax = 1; }
+                        case 5 -> { Lmax = 1; Gmax = 0.75f; Amax = 0.5f; }
+                    }
+                } else if (trackType.equals("62-foot Chord")) {
+                    switch (trackClass) {
+                        case 1 -> { Lmax = 3; Gmax = 1; Amax = 5; }
+                        case 2 -> { Lmax = 2.75f; Gmax = 0.875f; Amax = 3; }
+                        case 3 -> { Lmax = 2.25f; Gmax = 0.875f; Amax = 1.75f; }
+                        case 4 -> { Lmax = 2; Gmax = 0.75f; Amax = 1.5f; }
+                        case 5 -> { Lmax = 1.25f; Gmax = 0.75f; Amax = 0.625f; }
+                    }
+                } else if (trackType.equals("31-foot Qualified Cant Chord")) {
+                    switch (trackClass) {
+                        case 1 -> { Lmax = 0; Gmax = 1; Amax = 0; } // N/A for L and A
+                        case 2 -> { Lmax = 0; Gmax = 0.875f; Amax = 0; } // N/A for L and A
+                        case 3 -> { Lmax = 1; Gmax = 0.875f; Amax = 1.25f; }
+                        case 4 -> { Lmax = 1; Gmax = 0.75f; Amax = 1; }
+                        case 5 -> { Lmax = 1; Gmax = 0.75f; Amax = 0.5f; }
+                    }
+                } else if (trackType.equals("62-foot Qualified Cant Chord")) {
+                    switch (trackClass) {
+                        case 1 -> { Lmax = 2.25f; Gmax = 1; Amax = 1.25f; }
+                        case 2 -> { Lmax = 2.25f; Gmax = 0.875f; Amax = 1.25f; }
+                        case 3 -> { Lmax = 1.75f; Gmax = 0.875f; Amax = 1.25f; }
+                        case 4 -> { Lmax = 1.25f; Gmax = 0.75f; Amax = 0.875f; }
+                        case 5 -> { Lmax = 1; Gmax = 0.75f; Amax = 0.625f; }
+                    }
+                }
+
+                // Adjust input values by thresholds
+                l = Math.max(0, l - Lmax);
+                a = Math.max(0, a - Amax);
+                g = Math.max(0, g - Gmax);
+
+                // Proceed with the calculation if weights are valid
+                varTGIone(l, a, g, WL, WA, WG, Lmax, Amax, Gmax);
+                VarOneWindow.close();
+            } catch (NumberFormatException ex) {
+                errorMessage.setText("Invalid input. Please enter numerical values.");
+            }
         });
 
         BorderPane bottomPane = new BorderPane();
@@ -623,7 +667,7 @@ public class RailGeometry {
         BorderPane.setMargin(enterButton, new Insets(10));
         pane.setBottom(bottomPane);
 
-        Scene scene = new Scene(pane, 400, 300);
+        Scene scene = new Scene(pane, 500, 400);
         VarOneWindow.setScene(scene);
         VarOneWindow.setTitle("Variation 1 Deviation Input");
         VarOneWindow.show();
@@ -643,51 +687,118 @@ public class RailGeometry {
         Label notice = new Label("All measurements in inches");
         notice.setStyle("-fx-font-weight: bold;");
 
-        Label longitudinalLabel = new Label("Longitudinal Deviation: ");
+        // Track class and type selection
+        Label classLabel = new Label("Class of Track: ");
+        ComboBox<String> classCombo = new ComboBox<>();
+        classCombo.getItems().addAll("1", "2", "3", "4", "5");
+
+        Label typeLabel = new Label("Type of Track: ");
+        ComboBox<String> typeCombo = new ComboBox<>();
+        typeCombo.getItems().addAll("Line (Straight)", "31-foot Chord", "62-foot Chord", 
+                                    "31-foot Qualified Cant Chord", "62-foot Qualified Cant Chord");
+
+        Label longitudinalLabel = new Label("Longitudinal Observation: ");
         TextField longitudinalInput = new TextField();
         configureInputField(longitudinalInput);
-        configureBoundedInputField(longitudinalInput);
 
-        Label alignmentLabel = new Label("Alignment Deviation: ");
+        Label alignmentLabel = new Label("Alignment Observation: ");
         TextField alignmentInput = new TextField();
         configureInputField(alignmentInput);
-        configureBoundedInputField(alignmentInput);
 
-        Label gaugeLabel = new Label("Gauge Deviation: ");
+        Label gaugeLabel = new Label("Gauge Observation: ");
         TextField gaugeInput = new TextField();
         configureInputField(gaugeInput);
-        configureBoundedInputField(gaugeInput);
 
-        longitudinalInput.setOnKeyPressed(e -> {
-            if (e.getCode() == KeyCode.ENTER) {
-                alignmentInput.requestFocus();
-            }
-        });
-
-        alignmentInput.setOnKeyPressed(e -> {
-            if (e.getCode() == KeyCode.ENTER) {
-                gaugeInput.requestFocus();
-            }
-        });
+        Label errorMessage = new Label();
+        errorMessage.setStyle("-fx-text-fill: red;");
 
         gridPane.add(notice, 0, 0);
-        gridPane.add(longitudinalLabel, 0, 1);
-        gridPane.add(longitudinalInput, 1, 1);
-        gridPane.add(alignmentLabel, 0, 2);
-        gridPane.add(alignmentInput, 1, 2);
-        gridPane.add(gaugeLabel, 0, 3);
-        gridPane.add(gaugeInput, 1, 3);
-        
+        gridPane.add(classLabel, 0, 1);
+        gridPane.add(classCombo, 1, 1);
+        gridPane.add(typeLabel, 0, 2);
+        gridPane.add(typeCombo, 1, 2);
+        gridPane.add(longitudinalLabel, 0, 3);
+        gridPane.add(longitudinalInput, 1, 3);
+        gridPane.add(alignmentLabel, 0, 4);
+        gridPane.add(alignmentInput, 1, 4);
+        gridPane.add(gaugeLabel, 0, 5);
+        gridPane.add(gaugeInput, 1, 5);
+        gridPane.add(errorMessage, 1, 6);
+
         pane.setCenter(gridPane);
 
         Button enterButton = new Button("Enter");
         enterButton.setOnAction(e -> {
-            float l = Float.parseFloat(longitudinalInput.getText());
-            float a = Float.parseFloat(alignmentInput.getText());
-            float g = Float.parseFloat(gaugeInput.getText());
+            try {
+                // Parse input values
+                float l = Float.parseFloat(longitudinalInput.getText());
+                float a = Float.parseFloat(alignmentInput.getText());
+                float g = Float.parseFloat(gaugeInput.getText());
 
-            varTGItwo(l, a, g);
-            VarTwoWindow.close();
+                int trackClass = Integer.parseInt(classCombo.getValue());
+                String trackType = typeCombo.getValue();
+
+                // Get thresholds based on class and type
+                float Lmax = 0, Amax = 0, Gmax = 0;
+                switch (trackType) {
+                    case "Line (Straight)":
+                        switch (trackClass) {
+                            case 1 -> { Lmax = 3; Gmax = 1; Amax = 5; }
+                            case 2 -> { Lmax = 2; Gmax = 0.875f; Amax = 3; }
+                            case 3 -> { Lmax = 1.75f; Gmax = 0.875f; Amax = 1.75f; }
+                            case 4 -> { Lmax = 1.5f; Gmax = 0.75f; Amax = 1.5f; }
+                            case 5 -> { Lmax = 1; Gmax = 0.75f; Amax = 0.75f; }
+                        }
+                        break;
+                    case "31-foot Chord":
+                        switch (trackClass) {
+                            case 1 -> { Lmax = 0; Gmax = 1; Amax = 0; } // N/A for L and A
+                            case 2 -> { Lmax = 0; Gmax = 0.875f; Amax = 0; } // N/A for L and A
+                            case 3 -> { Lmax = 1; Gmax = 0.875f; Amax = 1.25f; }
+                            case 4 -> { Lmax = 1; Gmax = 0.75f; Amax = 1; }
+                            case 5 -> { Lmax = 1; Gmax = 0.75f; Amax = 0.5f; }
+                        }
+                        break;
+                    case "62-foot Chord":
+                        switch (trackClass) {
+                            case 1 -> { Lmax = 3; Gmax = 1; Amax = 5; }
+                            case 2 -> { Lmax = 2.75f; Gmax = 0.875f; Amax = 3; }
+                            case 3 -> { Lmax = 2.25f; Gmax = 0.875f; Amax = 1.75f; }
+                            case 4 -> { Lmax = 2; Gmax = 0.75f; Amax = 1.5f; }
+                            case 5 -> { Lmax = 1.25f; Gmax = 0.75f; Amax = 0.625f; }
+                        }
+                        break;
+                    case "31-foot Qualified Cant Chord":
+                        switch (trackClass) {
+                            case 1 -> { Lmax = 0; Gmax = 1; Amax = 0; } // N/A for L and A
+                            case 2 -> { Lmax = 0; Gmax = 0.875f; Amax = 0; } // N/A for L and A
+                            case 3 -> { Lmax = 1; Gmax = 0.875f; Amax = 1.25f; }
+                            case 4 -> { Lmax = 1; Gmax = 0.75f; Amax = 1; }
+                            case 5 -> { Lmax = 1; Gmax = 0.75f; Amax = 0.5f; }
+                        }
+                        break;
+                    case "62-foot Qualified Cant Chord":
+                        switch (trackClass) {
+                            case 1 -> { Lmax = 2.25f; Gmax = 1; Amax = 1.25f; }
+                            case 2 -> { Lmax = 2.25f; Gmax = 0.875f; Amax = 1.25f; }
+                            case 3 -> { Lmax = 1.75f; Gmax = 0.875f; Amax = 1.25f; }
+                            case 4 -> { Lmax = 1.25f; Gmax = 0.75f; Amax = 0.875f; }
+                            case 5 -> { Lmax = 1; Gmax = 0.75f; Amax = 0.625f; }
+                        }
+                        break;
+                }
+
+                // Adjust input values by thresholds
+                l = Math.max(0, l - Lmax);
+                a = Math.max(0, a - Amax);
+                g = Math.max(0, g - Gmax);
+
+                // Calculate user TGI
+                varTGItwo(l, a, g, Lmax, Amax, Gmax);
+                VarTwoWindow.close();
+            } catch (NumberFormatException ex) {
+                errorMessage.setText("Invalid input. Please enter numerical values.");
+            }
         });
 
         BorderPane bottomPane = new BorderPane();
@@ -695,7 +806,7 @@ public class RailGeometry {
         BorderPane.setMargin(enterButton, new Insets(10));
         pane.setBottom(bottomPane);
 
-        Scene scene = new Scene(pane, 400, 300);
+        Scene scene = new Scene(pane, 500, 400);
         VarTwoWindow.setScene(scene);
         VarTwoWindow.setTitle("Variation 2 Deviation Input");
         VarTwoWindow.show();
@@ -853,7 +964,7 @@ public class RailGeometry {
                     List<float[]> HRightList = new ArrayList<>();
                     List<float[]> crossLevelsList = new ArrayList<>();
                     List<float[]> gaugesList = new ArrayList<>();
-                    List<float[]> horizontalDeviationsList = new ArrayList<>();
+                    List<float[]> horizontalDeviationsList = new ArrayList<>(); // We will calculate this
 
                     // Use Apache POI to read Excel
                     try (FileInputStream fis = new FileInputStream(excelFile);
@@ -862,32 +973,36 @@ public class RailGeometry {
 
                         // Ensure the data is rectangular and correctly separated into instances
                         int totalColumns = sheet.getRow(0).getLastCellNum();
-                        if (totalColumns % 5 != 0) {
-                            throw new IllegalArgumentException("Invalid format: Each instance must have 5 columns.");
+                        if (totalColumns % 4 != 0) {  // Expecting 4 columns now (hLeft, hRight, crossLevel, gauge)
+                            throw new IllegalArgumentException("Invalid format: Each instance must have 4 columns.");
                         }
 
                         int rowCount = sheet.getPhysicalNumberOfRows();
-                        for (int i = 0; i < totalColumns; i += 5) {  // Jump by 5 columns for each instance
+                        for (int i = 0; i < totalColumns; i += 4) {  // Jump by 4 columns for each instance
                             List<Float> hLeft = new ArrayList<>();
                             List<Float> hRight = new ArrayList<>();
                             List<Float> crossLevels = new ArrayList<>();
                             List<Float> gauges = new ArrayList<>();
-                            List<Float> horizontalDeviations = new ArrayList<>();
+                            List<Float> horizontalDeviations = new ArrayList<>(); // For storing |hleft - hright|
 
                             for (Row row : sheet) {
                                 // Ensure no missing values in the block
-                                for (int j = i; j < i + 5; j++) {
+                                for (int j = i; j < i + 4; j++) {
                                     if (row.getCell(j) == null || row.getCell(j).getCellType() != CellType.NUMERIC) {
                                         throw new IllegalArgumentException("Invalid format: Missing or non-numeric value detected.");
                                     }
                                 }
 
-                                // Collect the data from each column in the current 5-column block
-                                hLeft.add((float) row.getCell(i).getNumericCellValue());
-                                hRight.add((float) row.getCell(i + 1).getNumericCellValue());
+                                // Collect the data from each column in the current 4-column block
+                                float hLeftValue = (float) row.getCell(i).getNumericCellValue();
+                                float hRightValue = (float) row.getCell(i + 1).getNumericCellValue();
+                                hLeft.add(hLeftValue);
+                                hRight.add(hRightValue);
                                 crossLevels.add((float) row.getCell(i + 2).getNumericCellValue());
                                 gauges.add((float) row.getCell(i + 3).getNumericCellValue());
-                                horizontalDeviations.add((float) row.getCell(i + 4).getNumericCellValue());
+
+                                // Calculate horizontal deviation as |hLeft - hRight|
+                                horizontalDeviations.add(Math.abs(hLeftValue - hRightValue));
                             }
 
                             // Add data for the current instance
@@ -1404,7 +1519,10 @@ public class RailGeometry {
     
     private void varDefaultTGI(int instances, float Lmax, float Amax, float Gmax, List<float[]> longitudinalList, List<float[]> alignmentList, List<float[]> gaugeList) {
         List<Float> tgiValues = new ArrayList<>();
-        int satisfactoryInstances = 0;
+        int satisfactoryInstancesL = 0;
+        int satisfactoryInstancesA = 0;
+        int satisfactoryInstancesG = 0;
+        int satisfactoryInstancesOverall = 0;
 
         StringBuilder exceedanceOutput = new StringBuilder();
 
@@ -1419,17 +1537,20 @@ public class RailGeometry {
 
             float tgiOut = 100 - ((l + a + g) / (Lmax + Amax + Gmax)) * 100;
             tgiOut = Math.round(tgiOut);
-
             tgiValues.add(tgiOut);
 
-            if (tgiOut >= 0) {
-                satisfactoryInstances++;
-            }
+            if (l <= Lmax) satisfactoryInstancesL++;
+            if (a <= Amax) satisfactoryInstancesA++;
+            if (g <= Gmax) satisfactoryInstancesG++;
+            if (l <= Lmax && a <= Amax && g <= Gmax) satisfactoryInstancesOverall++;
 
             exceedanceOutput.append(String.format("Instance %d L, A, G exceed: %.2f, %.2f, %.2f\n", i + 1, exceedL, exceedA, exceedG));
         }
 
-        float K = (float) satisfactoryInstances / instances;
+        float KL = (float) satisfactoryInstancesL / instances;
+        float KA = (float) satisfactoryInstancesA / instances;
+        float KG = (float) satisfactoryInstancesG / instances;
+        float KOverall = (float) satisfactoryInstancesOverall / instances;
 
         resultStage = new Stage();
         BorderPane resultPane = new BorderPane();
@@ -1440,7 +1561,10 @@ public class RailGeometry {
         resultBox.setAlignment(Pos.CENTER_LEFT);
 
         resultBox.getChildren().add(new Label("TGI Values: " + tgiValues.toString()));
-        resultBox.getChildren().add(new Label("K Value: " + String.format("%.2f", K)));
+        resultBox.getChildren().add(new Label(String.format("K (L): %.3f", KL)));
+        resultBox.getChildren().add(new Label(String.format("K (A): %.3f", KA)));
+        resultBox.getChildren().add(new Label(String.format("K (G): %.3f", KG)));
+        resultBox.getChildren().add(new Label(String.format("K (Overall): %.3f", KOverall)));
 
         resultBox.getChildren().add(new Label("Exceedance Values:"));
         resultBox.getChildren().add(new Label(exceedanceOutput.toString()));
@@ -1453,68 +1577,83 @@ public class RailGeometry {
         resultStage.show();
     }
     
-    private void varTGIone (float l, float a, float g, float WL, float WA, float WG) {
-    	float num = ((WL * l) + (WA * a) + (WG * g));
-    	float factor = num/10; 
-    	float detract = factor * 100;
-    	tgiOut = 100 - detract;
-    	tgiOut = Math.round(tgiOut);
-    	if (tgiOut < 0) {
-            condition = "Very Poor";
-            recommendedCourse = "Immediate shutdown or major repairs required";
-        } else {
-        condition = assignments[(int) Math.min(Math.max(tgiOut / 20, 0), 4)];
-        recommendedCourse = recommendation[Math.min((int) tgiOut / 20, 4)];
-        }
+    private void varTGIone(float l, float a, float g, float WL, float WA, float WG, 
+            float Lmax, float Amax, float Gmax) {
+    			float userNum = ((WL * l) + (WA * a) + (WG * g));
+    			float userFactor = userNum / 10; 
+    			float userTGI = 100 - (userFactor * 100);
+    			userTGI = Math.max(userTGI, 0); 
 
-        resultStage = new Stage();
-        BorderPane resultPane = new BorderPane();
-        resultPane.setPadding(new Insets(10));
+    			float thresholdNum = ((WL * Lmax) + (WA * Amax) + (WG * Gmax));
+    			float thresholdFactor = thresholdNum / 10;
+    			float thresholdTGI = 100 - (thresholdFactor * 100);
+    			thresholdTGI = Math.max(thresholdTGI, 0); 
 
-        VBox resultBox = new VBox(10);
-        resultBox.setPadding(new Insets(10));
-        resultBox.setAlignment(Pos.CENTER_LEFT);
+    			String[] assignments = { "Very Poor", "Poor", "Fair", "Good", "Excellent" };
+    			String condition = assignments[(int) Math.min(Math.max(userTGI / 20, 0), 4)];
+    			String[] recommendations = {
+    					"Immediate shutdown or major repairs required",
+    					"Urgent repairs necessary; restrict speeds",
+    					"Immediate corrective actions planned",
+    					"Schedule preventive maintenance",
+    					"Routine monitoring, no immediate action required"
+    			};
+    			String recommendedCourse = recommendations[(int) Math.min(userTGI / 20, 4)];
 
-        resultBox.getChildren().add(new Label("TGI Output: " + tgiOut));
-        resultBox.getChildren().add(new Label("Condition: " + condition));
-        resultBox.getChildren().add(new Label("Recommended Course of Action: " + recommendedCourse));
+    			Stage resultStage = new Stage();
+    			BorderPane resultPane = new BorderPane();
+    			resultPane.setPadding(new Insets(10));
 
-        resultPane.setCenter(resultBox);
+    			VBox resultBox = new VBox(10);
+    			resultBox.setPadding(new Insets(10));
+    			resultBox.setAlignment(Pos.CENTER_LEFT);
 
-        Scene resultScene = new Scene(resultPane, 400, 250);
-        resultStage.setScene(resultScene);
-        resultStage.setTitle("Results");
-        resultStage.show();
+    			resultBox.getChildren().add(new Label("User TGI Output: " + String.format("%.2f", userTGI)));
+    			resultBox.getChildren().add(new Label("User Condition: " + condition));
+    			resultBox.getChildren().add(new Label("Recommended Course of Action: " + recommendedCourse));
+    			resultBox.getChildren().add(new Label("Threshold TGI: " + String.format("%.2f", thresholdTGI)));
+
+    			resultPane.setCenter(resultBox);
+
+    			Scene resultScene = new Scene(resultPane, 400, 250);
+    			resultStage.setScene(resultScene);
+    			resultStage.setTitle("Results");
+    			resultStage.show();
     }
     
-    private void varTGItwo (float l, float a, float g) {
-    	tgiOut = (float) Math.sqrt(l * l + a * a + g * g);
-    	if (tgiOut < 0) {
+    private void varTGItwo(float l, float a, float g, float Lmax, float Amax, float Gmax) {
+        // Invert TGI calculation: 100 is the maximum score, with no deviations.
+        float tgiOut = 100 - (float) Math.sqrt(l * l + a * a + g * g);
+        
+        // Clamp TGI output so it doesn't go below 0.
+        tgiOut = Math.max(tgiOut, 0);
+
+        String condition;
+        String recommendedCourse;
+
+        // Determine condition and recommendation based on TGI value
+        if (tgiOut >= 80) {
+            condition = "Good Quality";
+            recommendedCourse = "Routine Monitoring";
+        } else if (tgiOut >= 60) {
+            condition = "Fair Quality";
+            recommendedCourse = "Planned maintenance needed";
+        } else if (tgiOut >= 40) {
+            condition = "Poor Quality";
+            recommendedCourse = "Immediate corrective actions required";
+        } else if (tgiOut >= 20) {
+            condition = "Very Poor Quality";
+            recommendedCourse = "Urgent repairs needed";
+        } else {
             condition = "Very Poor";
             recommendedCourse = "Urgent repairs needed";
         }
-    	else if (tgiOut >= 0.0 && tgiOut < 0.4 )  {
-    		condition = "Very Poor Quality";
-    		recommendedCourse = "Urgent repairs needed";
-        }
-    	else if (tgiOut >= 0.4 && tgiOut < 0.6 )  {
-    		condition = "Poor Quality";
-    		recommendedCourse = "Immediate corrective actions required";
-        }
-    	else if (tgiOut >= 0.6 && tgiOut < 0.8 )  {
-    		condition = "Fair Quality";
-    		recommendedCourse = "Planned maintenance needed";
-        }
-    	else if (tgiOut >= 0.8 && tgiOut <= 1.0 )  {
-    		condition = "Good Quality";
-    		recommendedCourse = "Routine Monitoring";
-        }
-    	else {
-    		condition = "Good Quality";
-    		recommendedCourse = "Routine Monitoring";
-    		System.out.print("System Error");
-    	}
 
+        // Calculate TGI for threshold values (this provides a comparison against ideal threshold values)
+        float thresholdTGI = 100 - (float) Math.sqrt(Lmax * Lmax + Amax * Amax + Gmax * Gmax);
+        thresholdTGI = Math.max(thresholdTGI, 0);  // Ensure it doesn't go below 0.
+
+        // Output stage
         resultStage = new Stage();
         BorderPane resultPane = new BorderPane();
         resultPane.setPadding(new Insets(10));
@@ -1523,13 +1662,15 @@ public class RailGeometry {
         resultBox.setPadding(new Insets(10));
         resultBox.setAlignment(Pos.CENTER_LEFT);
 
+        // Show the user's TGI and how it compares to the threshold TGI
         resultBox.getChildren().add(new Label("TGI Output: " + tgiOut));
         resultBox.getChildren().add(new Label("Condition: " + condition));
         resultBox.getChildren().add(new Label("Recommended Course of Action: " + recommendedCourse));
+        resultBox.getChildren().add(new Label("TGI (Threshold): " + thresholdTGI));
 
         resultPane.setCenter(resultBox);
 
-        Scene resultScene = new Scene(resultPane, 400, 250);
+        Scene resultScene = new Scene(resultPane, 400, 300);
         resultStage.setScene(resultScene);
         resultStage.setTitle("Results");
         resultStage.show();
@@ -1544,7 +1685,6 @@ public class RailGeometry {
         resultBox.setPadding(new Insets(10));
         resultBox.setAlignment(Pos.CENTER_LEFT);
 
-        // Output TGI score for each segment
         for (int i = 0; i < stdDevs.size(); i++) {
             double stddev = stdDevs.get(i);
             double factor = stddev / percentile80;
@@ -1563,7 +1703,9 @@ public class RailGeometry {
    
     private void varTGIswedenQ(int instances, float Hlim, float Slim, List<float[]> HLeftList, List<float[]> HRightList, List<float[]> crossLevelsList, List<float[]> gaugesList, List<float[]> horizontalDeviationsList) {
         List<Float> tgiValues = new ArrayList<>();
-        int satisfactoryInstances = 0;
+        int satisfactoryInstancesH = 0;
+        int satisfactoryInstancesS = 0;
+        int satisfactoryInstancesOverall = 0;
 
         for (int i = 0; i < instances; i++) {
             double sigmaH = genH(HLeftList.get(i), HRightList.get(i));
@@ -1581,13 +1723,14 @@ public class RailGeometry {
 
             tgiValues.add(tgiOut);
 
-            if (sigmaH <= Hlim && sigmaS <= Slim) {
-                satisfactoryInstances++;
-            }
+            if (sigmaH <= Hlim) satisfactoryInstancesH++;
+            if (sigmaS <= Slim) satisfactoryInstancesS++;
+            if (sigmaH <= Hlim && sigmaS <= Slim) satisfactoryInstancesOverall++;
         }
 
-        float satisfactoryLength = satisfactoryInstances * instances; // Use instances count to represent length
-        float K = satisfactoryLength / instances;
+        float KH = (float) satisfactoryInstancesH / instances;
+        float KS = (float) satisfactoryInstancesS / instances;
+        float KOverall = (float) satisfactoryInstancesOverall / instances;
 
         resultStage = new Stage();
         BorderPane resultPane = new BorderPane();
@@ -1597,8 +1740,10 @@ public class RailGeometry {
         resultBox.setPadding(new Insets(10));
         resultBox.setAlignment(Pos.CENTER_LEFT);
 
-        resultBox.getChildren().add(new Label("QI Values: " + tgiValues.toString()));
-        resultBox.getChildren().add(new Label("K Value: " + String.format("%.2f", K)));
+        resultBox.getChildren().add(new Label("TGI Values: " + tgiValues.toString()));
+        resultBox.getChildren().add(new Label(String.format("K (Hlim): %.3f", KH)));
+        resultBox.getChildren().add(new Label(String.format("K (Slim): %.3f", KS)));
+        resultBox.getChildren().add(new Label(String.format("K (Overall): %.3f", KOverall)));
 
         resultPane.setCenter(resultBox);
 
@@ -1690,7 +1835,6 @@ public class RailGeometry {
         float tgiNum = 2 * ui + ti + gi + 6 * ai;
         float TGI = tgiNum / 10;
 
-        // Add results to the resultBox
         resultBox.getChildren().add(new Label("UI: " + String.format("%.2f", ui)));
         resultBox.getChildren().add(new Label("AI: " + String.format("%.2f", ai)));
         resultBox.getChildren().add(new Label("TI: " + String.format("%.2f", ti)));
@@ -1706,7 +1850,10 @@ public class RailGeometry {
     }
     
     private void varTGIvar(List<Float[]> instances, float Lmax, float Amax, float Gmax) {
-        int satisfactoryCount = 0;  
+        int satisfactoryCountL = 0;
+        int satisfactoryCountA = 0;
+        int satisfactoryCountG = 0;
+        int satisfactoryCountOverall = 0;  
         List<String> results = new ArrayList<>();  
 
         for (int i = 0; i < instances.size(); i++) {
@@ -1726,9 +1873,11 @@ public class RailGeometry {
             float aexceed = Math.max(A - Amax, 0);
             float gexceed = Math.max(G - Gmax, 0);
 
-            if (lexceed == 0 && aexceed == 0 && gexceed == 0) {
-                satisfactoryCount++;
-            }
+            if (lexceed == 0) satisfactoryCountL++;
+            if (aexceed == 0) satisfactoryCountA++;
+            if (gexceed == 0) satisfactoryCountG++;
+
+            if (lexceed == 0 && aexceed == 0 && gexceed == 0) satisfactoryCountOverall++;
 
             results.add("Instance " + (i + 1) + ": TGI = " + String.format("%.2f", tgi) 
                         + ", Classification = " + classification 
@@ -1737,7 +1886,10 @@ public class RailGeometry {
                         + ", G exceed: " + String.format("%.2f", gexceed));
         }
 
-        float K = (float) satisfactoryCount / instances.size();
+        float KL = (float) satisfactoryCountL / instances.size();
+        float KA = (float) satisfactoryCountA / instances.size();
+        float KG = (float) satisfactoryCountG / instances.size();
+        float KOverall = (float) satisfactoryCountOverall / instances.size();
 
         resultStage = new Stage();
         BorderPane resultPane = new BorderPane();
@@ -1751,7 +1903,10 @@ public class RailGeometry {
             resultBox.getChildren().add(new Label(result));
         }
 
-        resultBox.getChildren().add(new Label("K-Value: " + String.format("%.2f", K)));
+        resultBox.getChildren().add(new Label(String.format("K (L): %.3f", KL)));
+        resultBox.getChildren().add(new Label(String.format("K (A): %.3f", KA)));
+        resultBox.getChildren().add(new Label(String.format("K (G): %.3f", KG)));
+        resultBox.getChildren().add(new Label(String.format("K (Overall): %.3f", KOverall)));
 
         resultPane.setCenter(resultBox);
 
