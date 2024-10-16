@@ -6,6 +6,7 @@ import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.RadioButton;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TextField;
 import javafx.scene.control.ToggleGroup;
 import javafx.scene.input.KeyCode;
@@ -83,27 +84,34 @@ public class RailGeometry {
         }
     }
     
- // Helper Method to display the image and text in a new popup window
     private void showInfoPopup() {
         Stage infoStage = new Stage();
         VBox vbox = new VBox(10);
         vbox.setPadding(new Insets(10));
 
-        // Load the image (ensure the correct path based on your directory structure)
-        Image image = new Image(getClass().getResourceAsStream("/placeholder.png"));
+        Image image = new Image(getClass().getResourceAsStream("/DefaultEx.png"));
         ImageView imageView = new ImageView(image);
-        imageView.setFitWidth(300); // Optional: Set image size
         imageView.setPreserveRatio(true);
 
-        // Load the text from the resource folder
-        String textContent = loadTextFromResource("/placeholder.txt");
+        double imageOriginalWidth = image.getWidth();
+        imageView.setFitWidth(imageOriginalWidth / 2);  
+        imageView.setPreserveRatio(true);  
+
+        String textContent = loadTextFromResource("/DefaultEx.txt");
         Label infoText = new Label(textContent);
+        infoText.setWrapText(true);
 
         vbox.getChildren().addAll(imageView, infoText);
 
-        Scene scene = new Scene(vbox);
+        ScrollPane scrollPane = new ScrollPane(vbox);
+        scrollPane.setFitToWidth(true); 
+        scrollPane.setFitToHeight(true); 
+
+        Scene scene = new Scene(scrollPane, 800, 625);
         infoStage.setScene(scene);
-        infoStage.sizeToScene();  
+
+        infoStage.setResizable(true); 
+        infoStage.sizeToScene(); 
         infoStage.setTitle("Info");
         infoStage.show();
     }
@@ -372,7 +380,7 @@ public class RailGeometry {
         alert.showAndWait();
     }
     
- // The setupFile method now saves in the user’s home directory
+ // The setupFile method saves in the user’s home directory
     private void setupFile() {
         DirectoryChooser directoryChooser = new DirectoryChooser();
         directoryChooser.setTitle("Select Directory for TGI Results");
@@ -617,7 +625,6 @@ public class RailGeometry {
             }
         });
 
-        // Add components to grid
         gridPane.add(notice, 0, 0);
         gridPane.add(classLabel, 0, 1);
         gridPane.add(classCombo, 1, 1);
@@ -632,11 +639,9 @@ public class RailGeometry {
         Button enterButton = new Button("Enter");
         enterButton.setOnAction(e -> {
             try {
-                // Get selected class and type
                 int trackClass = Integer.parseInt(classCombo.getValue());
                 String trackType = typeCombo.getValue();
 
-                // Variables for allowances (set based on track class and type)
                 float Lmax = 0, Amax = 0, Gmax = 0;
 
                 if (trackType.equals("Line (Straight)")) {
@@ -681,20 +686,17 @@ public class RailGeometry {
                     }
                 }
 
-                // Now that we have track class/type and limits, read Excel data
                 if (!selectedFileLabel.getText().equals("No file selected")) {
                     File excelFile = new File(selectedFileLabel.getText());
                     List<float[]> longitudinalList = new ArrayList<>();
                     List<float[]> alignmentList = new ArrayList<>();
                     List<float[]> gaugeList = new ArrayList<>();
 
-                    // Use Apache POI to read Excel
                     try (FileInputStream fis = new FileInputStream(excelFile);
                          Workbook workbook = new XSSFWorkbook(fis)) {
                         Sheet sheet = workbook.getSheetAt(0);
 
                         for (Row row : sheet) {
-                            // Read each row, expecting 3 columns: L, A, G
                             float l = (float) row.getCell(0).getNumericCellValue();
                             float a = (float) row.getCell(1).getNumericCellValue();
                             float g = (float) row.getCell(2).getNumericCellValue();
@@ -708,8 +710,7 @@ public class RailGeometry {
                         		+ " for help");
                     }
 
-                    // After collecting data, perform calculations
-                    int instances = longitudinalList.size();  // Number of rows = number of instances
+                    int instances = longitudinalList.size();  
                     varDefaultTGI(instances, Lmax, Amax, Gmax, longitudinalList, alignmentList, gaugeList);
                     defaultWindow.close();
                 } else {
@@ -807,7 +808,6 @@ public class RailGeometry {
         Button enterButton = new Button("Enter");
         enterButton.setOnAction(e -> {
             try {
-                // Parse input values
                 float l = Float.parseFloat(longitudinalInput.getText());
                 float a = Float.parseFloat(alignmentInput.getText());
                 float g = Float.parseFloat(gaugeInput.getText());
@@ -815,11 +815,9 @@ public class RailGeometry {
                 float WA = Float.parseFloat(WAInput.getText());
                 float WG = Float.parseFloat(WGInput.getText());
 
-                // Get selected class and type
                 int trackClass = Integer.parseInt(classCombo.getValue());
                 String trackType = typeCombo.getValue();
 
-                // Variables for allowances (set based on track class and type)
                 float Lmax = 0, Amax = 0, Gmax = 0;
 
                 if (trackType.equals("Line (Straight)")) {
@@ -864,12 +862,10 @@ public class RailGeometry {
                     }
                 }
 
-                // Adjust input values by thresholds
                 l = Math.max(0, l - Lmax);
                 a = Math.max(0, a - Amax);
                 g = Math.max(0, g - Gmax);
 
-                // Proceed with the calculation if weights are valid
                 varTGIone(l, a, g, WL, WA, WG, Lmax, Amax, Gmax);
                 VarOneWindow.close();
             } catch (NumberFormatException ex) {
@@ -1722,6 +1718,7 @@ public class RailGeometry {
             float exceedA = a - Amax > 0 ? a - Amax : 0;
             float exceedG = g - Gmax > 0 ? g - Gmax : 0;
 
+            // Calculate the actual TGI
             float tgiOut = 100 - (((exceedL + exceedA + exceedG) / (Lmax + Amax + Gmax)) * 100);
             tgiOut = Math.round(tgiOut);
             tgiValues.add(tgiOut);
@@ -1756,15 +1753,35 @@ public class RailGeometry {
         resultBox.getChildren().add(new Label("Exceedance Values:"));
         resultBox.getChildren().add(new Label(exceedanceOutput.toString()));
 
-        // Add Save button
         Button saveButton = new Button("Save to Excel");
         saveButton.setOnAction(e -> {
             saveDefault(instances, longitudinalList, alignmentList, gaugeList, tgiValues, KL, KA, KG, KOverall, Lmax, Amax, Gmax);
-            resultStage.close();  // Close the current output stage after saving
+            resultStage.close();
         });
-        resultBox.getChildren().add(saveButton);
 
-        resultPane.setCenter(resultBox);
+        Button helpButton = new Button("?");
+        helpButton.setStyle(
+            "-fx-background-color: lightgray; " +
+            "-fx-text-fill: black; " +
+            "-fx-font-weight: bold; " +
+            "-fx-background-radius: 15; " +
+            "-fx-padding: 2; " +
+            "-fx-min-width: 20px; " +
+            "-fx-min-height: 20px; " +
+            "-fx-max-width: 20px; " +
+            "-fx-max-height: 20px;"
+        );
+        helpButton.setOnAction(e -> showInfoPopup());
+
+        HBox buttonBox = new HBox(10);
+        buttonBox.getChildren().addAll(saveButton, helpButton);
+
+        resultBox.getChildren().add(buttonBox);
+
+        ScrollPane scrollPane = new ScrollPane(resultBox);
+        scrollPane.setFitToWidth(true);
+
+        resultPane.setCenter(scrollPane);
         Scene resultScene = new Scene(resultPane);
         resultStage.setScene(resultScene);
         resultStage.sizeToScene();
@@ -1808,12 +1825,39 @@ public class RailGeometry {
     			resultBox.getChildren().add(new Label("Recommended Course of Action: " + recommendedCourse));
     			resultBox.getChildren().add(new Label("Threshold TGI: " + String.format("%.2f", thresholdTGI)));
 
-    			resultPane.setCenter(resultBox);
+    			Button saveButton = new Button("Save to Excel");
+    	        saveButton.setOnAction(e -> {
+    	            // save method here
+    	            resultStage.close();  
+    	        });
 
-    			Scene resultScene = new Scene(resultPane);
+    	        Button helpButton = new Button("?");
+    	        helpButton.setStyle(
+    	            "-fx-background-color: lightgray; " +   
+    	            "-fx-text-fill: black; " +              
+    	            "-fx-font-weight: bold; " +             
+    	            "-fx-background-radius: 15; " +         
+    	            "-fx-padding: 2; " +                    
+    	            "-fx-min-width: 20px; " +               
+    	            "-fx-min-height: 20px; " +              
+    	            "-fx-max-width: 20px; " +               
+    	            "-fx-max-height: 20px;"                 
+    	        );
+    	        helpButton.setOnAction(e -> showInfoPopup());  // Placeholder for future functionality
+
+    	        HBox buttonBox = new HBox(10); 
+    	        buttonBox.getChildren().addAll(saveButton, helpButton);
+
+    	        resultBox.getChildren().add(buttonBox);
+    	        
+    	        ScrollPane scrollPane = new ScrollPane(resultBox);
+    	        scrollPane.setFitToWidth(true);
+
+    	        resultPane.setCenter(scrollPane);
+    	        Scene resultScene = new Scene(resultPane);
     			resultStage.setScene(resultScene);
     			resultStage.sizeToScene();
-    			resultStage.setTitle("Results");
+    			resultStage.setTitle("Variation 1 Results");
     			resultStage.show();
     }
     
@@ -1864,12 +1908,40 @@ public class RailGeometry {
         resultBox.getChildren().add(new Label("Recommended Course of Action: " + recommendedCourse));
         resultBox.getChildren().add(new Label("TGI (Threshold): " + thresholdTGI));
 
-        resultPane.setCenter(resultBox);
+        Button saveButton = new Button("Save to Excel");
+        saveButton.setOnAction(e -> {
+            // save method here
+            resultStage.close();  
+        });
 
+        Button helpButton = new Button("?");
+        helpButton.setStyle(
+            "-fx-background-color: lightgray; " +   
+            "-fx-text-fill: black; " +              
+            "-fx-font-weight: bold; " +             
+            "-fx-background-radius: 15; " +         
+            "-fx-padding: 2; " +                    
+            "-fx-min-width: 20px; " +               
+            "-fx-min-height: 20px; " +              
+            "-fx-max-width: 20px; " +               
+            "-fx-max-height: 20px;"                 
+        );
+        helpButton.setOnAction(e -> showInfoPopup());
+
+        HBox buttonBox = new HBox(10); 
+        buttonBox.getChildren().addAll(saveButton, helpButton);
+
+        resultBox.getChildren().add(buttonBox);
+        
+        ScrollPane scrollPane = new ScrollPane(resultBox);
+        scrollPane.setFitToWidth(true);
+
+        resultPane.setCenter(scrollPane);
+        
         Scene resultScene = new Scene(resultPane);
         resultStage.setScene(resultScene);
         resultStage.sizeToScene();
-        resultStage.setTitle("Results");
+        resultStage.setTitle("Variation 2 Results");
         resultStage.show();
     }
     
@@ -1890,12 +1962,40 @@ public class RailGeometry {
             resultBox.getChildren().add(new Label("Segment " + (i + 1) + " TGI Output: " + tgiOut));
         }
 
-        resultPane.setCenter(resultBox);
+        Button saveButton = new Button("Save to Excel");
+        saveButton.setOnAction(e -> {
+            // save method here
+            resultStage.close();  
+        });
+
+        Button helpButton = new Button("?");
+        helpButton.setStyle(
+            "-fx-background-color: lightgray; " +   
+            "-fx-text-fill: black; " +              
+            "-fx-font-weight: bold; " +             
+            "-fx-background-radius: 15; " +         
+            "-fx-padding: 2; " +                    
+            "-fx-min-width: 20px; " +               
+            "-fx-min-height: 20px; " +              
+            "-fx-max-width: 20px; " +               
+            "-fx-max-height: 20px;"                 
+        );
+        helpButton.setOnAction(e -> showInfoPopup());  // Placeholder for future functionality
+
+        HBox buttonBox = new HBox(10); 
+        buttonBox.getChildren().addAll(saveButton, helpButton);
+
+        resultBox.getChildren().add(buttonBox);
+        
+        ScrollPane scrollPane = new ScrollPane(resultBox);
+        scrollPane.setFitToWidth(true);
+
+        resultPane.setCenter(scrollPane);
 
         Scene resultScene = new Scene(resultPane);
         resultStage.setScene(resultScene);
         resultStage.sizeToScene();
-        resultStage.setTitle("Results");
+        resultStage.setTitle("NTQI Results");
         resultStage.show();
     }
    
@@ -1942,7 +2042,35 @@ public class RailGeometry {
         resultBox.getChildren().add(new Label(String.format("K (Slim): %.3f", KS)));
         resultBox.getChildren().add(new Label(String.format("K (Overall): %.3f", KOverall)));
 
-        resultPane.setCenter(resultBox);
+        Button saveButton = new Button("Save to Excel");
+        saveButton.setOnAction(e -> {
+            // save method here
+            resultStage.close();  
+        });
+
+        Button helpButton = new Button("?");
+        helpButton.setStyle(
+            "-fx-background-color: lightgray; " +   
+            "-fx-text-fill: black; " +              
+            "-fx-font-weight: bold; " +             
+            "-fx-background-radius: 15; " +         
+            "-fx-padding: 2; " +                    
+            "-fx-min-width: 20px; " +               
+            "-fx-min-height: 20px; " +              
+            "-fx-max-width: 20px; " +               
+            "-fx-max-height: 20px;"                 
+        );
+        helpButton.setOnAction(e -> showInfoPopup());  // Placeholder for future functionality
+
+        HBox buttonBox = new HBox(10); 
+        buttonBox.getChildren().addAll(saveButton, helpButton);
+
+        resultBox.getChildren().add(buttonBox);
+        
+        ScrollPane scrollPane = new ScrollPane(resultBox);
+        scrollPane.setFitToWidth(true);
+
+        resultPane.setCenter(scrollPane);
 
         Scene resultScene = new Scene(resultPane);
         resultStage.setScene(resultScene);
@@ -1966,12 +2094,40 @@ public class RailGeometry {
 
         resultBox.getChildren().add(new Label("J Output: " + tgiOut));
 
-        resultPane.setCenter(resultBox);
+        Button saveButton = new Button("Save to Excel");
+        saveButton.setOnAction(e -> {
+            // save method here
+            resultStage.close();  
+        });
+
+        Button helpButton = new Button("?");
+        helpButton.setStyle(
+            "-fx-background-color: lightgray; " +   
+            "-fx-text-fill: black; " +              
+            "-fx-font-weight: bold; " +             
+            "-fx-background-radius: 15; " +         
+            "-fx-padding: 2; " +                    
+            "-fx-min-width: 20px; " +               
+            "-fx-min-height: 20px; " +              
+            "-fx-max-width: 20px; " +               
+            "-fx-max-height: 20px;"                 
+        );
+        helpButton.setOnAction(e -> showInfoPopup());  // Placeholder for future functionality
+
+        HBox buttonBox = new HBox(10); 
+        buttonBox.getChildren().addAll(saveButton, helpButton);
+
+        resultBox.getChildren().add(buttonBox);
+        
+        ScrollPane scrollPane = new ScrollPane(resultBox);
+        scrollPane.setFitToWidth(true);
+
+        resultPane.setCenter(scrollPane);
 
         Scene resultScene = new Scene(resultPane);
         resultStage.sizeToScene();
         resultStage.setScene(resultScene);
-        resultStage.setTitle("Results");
+        resultStage.setTitle("J Coefficient Results");
         resultStage.show();
     }
     
@@ -2003,12 +2159,40 @@ public class RailGeometry {
         }
         resultBox.getChildren().add(new Label("Overall TGI: " + String.format("%.2f", averageTQI)));
 
-        resultPane.setCenter(resultBox);
+        Button saveButton = new Button("Save to Excel");
+        saveButton.setOnAction(e -> {
+            // save method here
+            resultStage.close();  
+        });
+
+        Button helpButton = new Button("?");
+        helpButton.setStyle(
+            "-fx-background-color: lightgray; " +   
+            "-fx-text-fill: black; " +              
+            "-fx-font-weight: bold; " +             
+            "-fx-background-radius: 15; " +         
+            "-fx-padding: 2; " +                    
+            "-fx-min-width: 20px; " +               
+            "-fx-min-height: 20px; " +              
+            "-fx-max-width: 20px; " +               
+            "-fx-max-height: 20px;"                 
+        );
+        helpButton.setOnAction(e -> showInfoPopup());  // Placeholder for future functionality
+
+        HBox buttonBox = new HBox(10); 
+        buttonBox.getChildren().addAll(saveButton, helpButton);
+
+        resultBox.getChildren().add(buttonBox);
+        
+        ScrollPane scrollPane = new ScrollPane(resultBox);
+        scrollPane.setFitToWidth(true);
+
+        resultPane.setCenter(scrollPane);
 
         Scene resultScene = new Scene(resultPane);
         resultStage.sizeToScene();
         resultStage.setScene(resultScene);
-        resultStage.setTitle("Results");
+        resultStage.setTitle("CN Results");
         resultStage.show();
     }
     
@@ -2041,12 +2225,40 @@ public class RailGeometry {
         resultBox.getChildren().add(new Label("GI: " + String.format("%.2f", gi)));
         resultBox.getChildren().add(new Label("Overall TGI: " + String.format("%.2f", TGI)));
 
-        resultPane.setCenter(resultBox);
+        Button saveButton = new Button("Save to Excel");
+        saveButton.setOnAction(e -> {
+            // save method here
+            resultStage.close();  
+        });
+
+        Button helpButton = new Button("?");
+        helpButton.setStyle(
+            "-fx-background-color: lightgray; " +   
+            "-fx-text-fill: black; " +              
+            "-fx-font-weight: bold; " +             
+            "-fx-background-radius: 15; " +         
+            "-fx-padding: 2; " +                    
+            "-fx-min-width: 20px; " +               
+            "-fx-min-height: 20px; " +              
+            "-fx-max-width: 20px; " +               
+            "-fx-max-height: 20px;"                 
+        );
+        helpButton.setOnAction(e -> showInfoPopup());  // Placeholder for future functionality
+
+        HBox buttonBox = new HBox(10); 
+        buttonBox.getChildren().addAll(saveButton, helpButton);
+
+        resultBox.getChildren().add(buttonBox);
+        
+        ScrollPane scrollPane = new ScrollPane(resultBox);
+        scrollPane.setFitToWidth(true);
+
+        resultPane.setCenter(scrollPane);
 
         Scene resultScene = new Scene(resultPane);
         resultStage.setScene(resultScene);
         resultStage.sizeToScene();
-        resultStage.setTitle("Results");
+        resultStage.setTitle("TGI Results");
         resultStage.show();
     }
     
@@ -2109,87 +2321,113 @@ public class RailGeometry {
         resultBox.getChildren().add(new Label(String.format("K (G): %.3f", KG)));
         resultBox.getChildren().add(new Label(String.format("K (Overall): %.3f", KOverall)));
 
-        resultPane.setCenter(resultBox);
+        Button saveButton = new Button("Save to Excel");
+        saveButton.setOnAction(e -> {
+            // save method here
+            resultStage.close();  
+        });
+
+        Button helpButton = new Button("?");
+        helpButton.setStyle(
+            "-fx-background-color: lightgray; " +   
+            "-fx-text-fill: black; " +              
+            "-fx-font-weight: bold; " +             
+            "-fx-background-radius: 15; " +         
+            "-fx-padding: 2; " +                    
+            "-fx-min-width: 20px; " +               
+            "-fx-min-height: 20px; " +              
+            "-fx-max-width: 20px; " +               
+            "-fx-max-height: 20px;"                 
+        );
+        helpButton.setOnAction(e -> showInfoPopup());  // Placeholder for future functionality
+
+        HBox buttonBox = new HBox(10); 
+        buttonBox.getChildren().addAll(saveButton, helpButton);
+
+        resultBox.getChildren().add(buttonBox);
+        
+        ScrollPane scrollPane = new ScrollPane(resultBox);
+        scrollPane.setFitToWidth(true);
+
+        resultPane.setCenter(scrollPane);
 
         Scene resultScene = new Scene(resultPane);
         resultStage.setScene(resultScene);
         resultStage.sizeToScene();
-        resultStage.setTitle("TGI Variation Results");
+        resultStage.setTitle("Variation 3 Results");
         resultStage.show();
     }
     
     private void saveDefault(int instances, List<float[]> longitudinalList, List<float[]> alignmentList, List<float[]> gaugeList,
             List<Float> tgiValues, float KL, float KA, float KG, float KOverall, float Lmax, float Amax, float Gmax) {
 
-		// Retrieve the path from file_path.txt
-		String filePath = getFilePath();
-		File excelFile = new File(filePath + "/Default.xlsx");
-		
-		try (FileInputStream fis = new FileInputStream(excelFile);
-		Workbook workbook = new XSSFWorkbook(fis)) {
-		
-		Sheet sheet = workbook.getSheetAt(0);
-		int nextRow = getNextAvailableRow(sheet);  // Find the next empty row
-		
-		// **Step 1**: Always write headers after finding the next empty row and moving down by one row
-		nextRow++;  // Move one row down to leave a blank row above the headers
-		Row headerRow = sheet.createRow(nextRow++);
-		headerRow.createCell(0).setCellValue("Run #");
-		headerRow.createCell(1).setCellValue("Instance #");
-		headerRow.createCell(2).setCellValue("L (Input)");
-		headerRow.createCell(3).setCellValue("A (Input)");
-		headerRow.createCell(4).setCellValue("G (Input)");
-		headerRow.createCell(5).setCellValue("L Threshold");
-		headerRow.createCell(6).setCellValue("A Threshold");
-		headerRow.createCell(7).setCellValue("G Threshold");
-		headerRow.createCell(8).setCellValue("L Exceed");
-		headerRow.createCell(9).setCellValue("A Exceed");
-		headerRow.createCell(10).setCellValue("G Exceed");
-		headerRow.createCell(11).setCellValue("TGI (Instance)");
-		headerRow.createCell(12).setCellValue("Threshold TGI");
-		
-		// **Step 2**: Write instance data
-		int runNumber = getNextRunNumber(sheet);  // Calculate the run number
-		for (int i = 0; i < instances; i++) {
-		Row row = sheet.createRow(nextRow++);
-		row.createCell(0).setCellValue(runNumber);  // Run number
-		row.createCell(1).setCellValue(i + 1);  // Instance #
-		row.createCell(2).setCellValue(longitudinalList.get(i)[0]); // L (Input)
-		row.createCell(3).setCellValue(alignmentList.get(i)[0]);    // A (Input)
-		row.createCell(4).setCellValue(gaugeList.get(i)[0]);        // G (Input)
-		row.createCell(5).setCellValue(Lmax);  // L Threshold
-		row.createCell(6).setCellValue(Amax);  // A Threshold
-		row.createCell(7).setCellValue(Gmax);  // G Threshold
-		row.createCell(8).setCellValue(Math.max(0, longitudinalList.get(i)[0] - Lmax)); // L Exceed
-		row.createCell(9).setCellValue(Math.max(0, alignmentList.get(i)[0] - Amax));    // A Exceed
-		row.createCell(10).setCellValue(Math.max(0, gaugeList.get(i)[0] - Gmax));       // G Exceed
-		row.createCell(11).setCellValue(tgiValues.get(i));           // TGI (Instance)
-		row.createCell(12).setCellValue(100);                        // Threshold TGI (always 100)
-		}
-		
-		// **Step 3**: Write run-level summary with the current date
-		Row summaryRow = sheet.createRow(nextRow++);
-		SimpleDateFormat dateFormat = new SimpleDateFormat("MM/dd/yyyy");
-		String currentDate = dateFormat.format(new Date());
-		
-		summaryRow.createCell(0).setCellValue("Run " + runNumber + " Summary:");
-		summaryRow.createCell(1).setCellValue("K (L): " + KL);
-		summaryRow.createCell(2).setCellValue("K (A): " + KA);
-		summaryRow.createCell(3).setCellValue("K (G): " + KG);
-		summaryRow.createCell(4).setCellValue("K (Overall): " + KOverall);
-		summaryRow.createCell(5).setCellValue("Average TGI: " + calculateAverageTGI(tgiValues));
-		summaryRow.createCell(6).setCellValue("Date: " + currentDate);  // Add the date
-		
-		// **Step 4**: Write the workbook back to the file
-		try (FileOutputStream fos = new FileOutputStream(excelFile)) {
-		workbook.write(fos);
-		}
-		
-		} catch (IOException e) {
-		e.printStackTrace();
-		showError("Error writing to Excel file.");
-		}
-		}
+    // Retrieve the path from file_path.txt
+    String filePath = getFilePath();
+    File excelFile = new File(filePath + "/Default.xlsx");
+
+    try (FileInputStream fis = new FileInputStream(excelFile);
+        Workbook workbook = new XSSFWorkbook(fis)) {
+
+        Sheet sheet = workbook.getSheetAt(0);
+        int nextRow = getNextAvailableRow(sheet);  // Find the next empty row
+
+        // **Step 1**: Always write headers after finding the next empty row and moving down by one row
+        nextRow++;  // Move one row down to leave a blank row above the headers
+        Row headerRow = sheet.createRow(nextRow++);
+        headerRow.createCell(0).setCellValue("Run #");
+        headerRow.createCell(1).setCellValue("Instance #");
+        headerRow.createCell(2).setCellValue("L (Input)");
+        headerRow.createCell(3).setCellValue("A (Input)");
+        headerRow.createCell(4).setCellValue("G (Input)");
+        headerRow.createCell(5).setCellValue("L Threshold");
+        headerRow.createCell(6).setCellValue("A Threshold");
+        headerRow.createCell(7).setCellValue("G Threshold");
+        headerRow.createCell(8).setCellValue("L Exceed");
+        headerRow.createCell(9).setCellValue("A Exceed");
+        headerRow.createCell(10).setCellValue("G Exceed");
+        headerRow.createCell(11).setCellValue("TGI (Instance)");
+
+        // **Step 2**: Write instance data
+        int runNumber = getNextRunNumber(sheet);  // Calculate the run number
+        for (int i = 0; i < instances; i++) {
+            Row row = sheet.createRow(nextRow++);
+            row.createCell(0).setCellValue(runNumber);  // Run number
+            row.createCell(1).setCellValue(i + 1);  // Instance #
+            row.createCell(2).setCellValue(longitudinalList.get(i)[0]); // L (Input)
+            row.createCell(3).setCellValue(alignmentList.get(i)[0]);    // A (Input)
+            row.createCell(4).setCellValue(gaugeList.get(i)[0]);        // G (Input)
+            row.createCell(5).setCellValue(Lmax);  // L Threshold
+            row.createCell(6).setCellValue(Amax);  // A Threshold
+            row.createCell(7).setCellValue(Gmax);  // G Threshold
+            row.createCell(8).setCellValue(Math.max(0, longitudinalList.get(i)[0] - Lmax)); // L Exceed
+            row.createCell(9).setCellValue(Math.max(0, alignmentList.get(i)[0] - Amax));    // A Exceed
+            row.createCell(10).setCellValue(Math.max(0, gaugeList.get(i)[0] - Gmax));       // G Exceed
+            row.createCell(11).setCellValue(tgiValues.get(i));           // TGI (Instance)
+        }
+
+        // **Step 3**: Write run-level summary with the current date
+        Row summaryRow = sheet.createRow(nextRow++);
+        SimpleDateFormat dateFormat = new SimpleDateFormat("MM/dd/yyyy");
+        String currentDate = dateFormat.format(new Date());
+
+        summaryRow.createCell(0).setCellValue("Run " + runNumber + " Summary:");
+        summaryRow.createCell(1).setCellValue("K (L): " + KL);
+        summaryRow.createCell(2).setCellValue("K (A): " + KA);
+        summaryRow.createCell(3).setCellValue("K (G): " + KG);
+        summaryRow.createCell(4).setCellValue("K (Overall): " + KOverall);
+        summaryRow.createCell(5).setCellValue("Average TGI: " + calculateAverageTGI(tgiValues));
+        summaryRow.createCell(6).setCellValue("Date: " + currentDate);  // Add the date
+
+        // **Step 4**: Write the workbook back to the file
+        try (FileOutputStream fos = new FileOutputStream(excelFile)) {
+            workbook.write(fos);
+        }
+
+    } catch (IOException e) {
+        e.printStackTrace();
+        showError("Error writing to Excel file.");
+    }
+}
 
     
     private float calculateAverageTGI(List<Float> tgiValues) {
