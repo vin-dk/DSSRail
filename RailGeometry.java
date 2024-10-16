@@ -16,18 +16,29 @@ import javafx.stage.Stage;
 import java.util.Arrays;
 import java.util.List;
 import java.util.ArrayList;
+
+import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.FileReader;
+import java.io.FileWriter;
 import java.io.IOException;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.Scanner;
 import javafx.scene.layout.HBox; 
+import java.text.SimpleDateFormat;
+import java.util.Date;
 
 
 public class RailGeometry {
@@ -299,6 +310,138 @@ public class RailGeometry {
         return array;
     }
     
+    private String getFilePath() {
+        String homeDir = System.getProperty("user.home");
+        File resourceDir = new File(homeDir, "TGIProgramResources");
+        File filePathFile = new File(resourceDir, "file_path.txt");
+
+        try (BufferedReader reader = new BufferedReader(new FileReader(filePathFile))) {
+            return reader.readLine();  // Return the saved path to the TGI Results directory
+        } catch (IOException e) {
+            e.printStackTrace();
+            showError("Failed to retrieve file path. Please set up the TGI Results directory.");
+            return null;
+        }
+    }
+    
+    private boolean isFilePathValid() {
+        String homeDir = System.getProperty("user.home");
+        File resourceDir = new File(homeDir, "TGIProgramResources");
+        File filePathFile = new File(resourceDir, "file_path.txt");
+
+        // Check if file_path.txt is present and points to a valid directory
+        if (filePathFile.exists()) {
+            try (BufferedReader reader = new BufferedReader(new FileReader(filePathFile))) {
+                String filePath = reader.readLine();
+                File tgiResultsDir = new File(filePath);
+                if (tgiResultsDir.exists() && tgiResultsDir.isDirectory()) {
+                    return true;  // Path is valid
+                } else {
+                    // Path is invalid, so delete file_path.txt
+                    filePathFile.delete();
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+        return false;  // Either file_path.txt doesn't exist, or it points to a non-existent directory
+    }
+    
+ // Helper method to save the valid directory path to file_path.txt
+    private void saveFilePath(String resultDirectoryPath) {
+        String homeDir = System.getProperty("user.home");
+        File resourceDir = new File(homeDir, "TGIProgramResources");
+        if (!resourceDir.exists()) {
+            resourceDir.mkdir();  // Create TGIProgramResources folder in the user's home directory if it doesn't exist
+        }
+        File filePathFile = new File(resourceDir, "file_path.txt");
+        
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(filePathFile))) {
+            writer.write(resultDirectoryPath);  // Write the path to file_path.txt
+        } catch (IOException e) {
+            e.printStackTrace();
+            showError("Failed to save file path.");
+        }
+    }
+    
+    private void showInfo(String message) {
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.setTitle("Information");
+        alert.setHeaderText(null);
+        alert.setContentText(message);
+        alert.showAndWait();
+    }
+    
+ // The setupFile method now saves in the user’s home directory
+    private void setupFile() {
+        DirectoryChooser directoryChooser = new DirectoryChooser();
+        directoryChooser.setTitle("Select Directory for TGI Results");
+        File selectedDirectory = directoryChooser.showDialog(new Stage());
+
+        if (selectedDirectory != null) {
+            String resultDirectoryPath = selectedDirectory.getAbsolutePath() + "/TGI Results";
+            File resultsDirectory = new File(resultDirectoryPath);
+            if (!resultsDirectory.exists()) {
+                resultsDirectory.mkdir();  // Create TGI Results directory if it doesn't exist
+            }
+
+            // Save the directory path to file_path.txt in the user's home directory
+            saveFilePath(resultDirectoryPath);
+
+            // Create 9 empty Excel sheets in the TGI Results folder, labeled according to the methods
+            for (int i = 1; i <= 9; i++) {
+                String optionName;
+                switch (i) {
+                    case 1:
+                        optionName = "Default";
+                        break;
+                    case 2:
+                        optionName = "Variation 1";
+                        break;
+                    case 3:
+                        optionName = "Variation 2";
+                        break;
+                    case 4:
+                        optionName = "Variation 3";
+                        break;
+                    case 5:
+                        optionName = "Netherlands Track Quality Index";
+                        break;
+                    case 6:
+                        optionName = "Sweden Q";
+                        break;
+                    case 7:
+                        optionName = "J Coefficient";
+                        break;
+                    case 8:
+                        optionName = "CN Index";
+                        break;
+                    case 9:
+                        optionName = "Track Geometry Index";
+                        break;
+                    default:
+                        optionName = "Default";
+                }
+
+                // Create an empty Excel sheet for each method
+                File excelFile = new File(resultDirectoryPath + "/" + optionName + ".xlsx");
+                try (Workbook workbook = new XSSFWorkbook()) {
+                    Sheet sheet = workbook.createSheet(optionName);
+                    try (FileOutputStream fos = new FileOutputStream(excelFile)) {
+                        workbook.write(fos);
+                    }
+                } catch (IOException e) {
+                    e.printStackTrace();
+                    showError("Failed to create Excel file for: " + optionName);
+                }
+            }
+
+            showInfo("TGI Results folder set up successfully at: " + resultDirectoryPath);
+        } else {
+            showError("No directory selected. Setup failed.");
+        }
+    }
+    
     // main driver method
     
     public void openMenuSelection(Stage primaryStage) {
@@ -313,6 +456,16 @@ public class RailGeometry {
         optionsBox.getChildren().add(instructionLabel);
 
         ToggleGroup toggleGroup = new ToggleGroup();
+        
+        String filePathResource = "/resources/file_path.txt";
+        boolean isFilePathValid = isFilePathValid();  // Check if file_path.txt exists and is valid
+
+        // Step 2: If file_path.txt is not valid, call setupFile method
+        if (!isFilePathValid) {
+            setupFile();
+            openMenuSelection(primaryStage);
+            return;  // Exit after setup, since the user will restart
+        }
 
         for (int i = 1; i <= 9; i++) {
             String optionName;
@@ -1569,7 +1722,7 @@ public class RailGeometry {
             float exceedA = a - Amax > 0 ? a - Amax : 0;
             float exceedG = g - Gmax > 0 ? g - Gmax : 0;
 
-            float tgiOut = 100 - ((l + a + g) / (Lmax + Amax + Gmax)) * 100;
+            float tgiOut = 100 - (((exceedL + exceedA + exceedG) / (Lmax + Amax + Gmax)) * 100);
             tgiOut = Math.round(tgiOut);
             tgiValues.add(tgiOut);
 
@@ -1586,6 +1739,7 @@ public class RailGeometry {
         float KG = (float) satisfactoryInstancesG / instances;
         float KOverall = (float) satisfactoryInstancesOverall / instances;
 
+        // Output stage
         resultStage = new Stage();
         BorderPane resultPane = new BorderPane();
         resultPane.setPadding(new Insets(10));
@@ -1599,12 +1753,18 @@ public class RailGeometry {
         resultBox.getChildren().add(new Label(String.format("K (A): %.3f", KA)));
         resultBox.getChildren().add(new Label(String.format("K (G): %.3f", KG)));
         resultBox.getChildren().add(new Label(String.format("K (Overall): %.3f", KOverall)));
-
         resultBox.getChildren().add(new Label("Exceedance Values:"));
         resultBox.getChildren().add(new Label(exceedanceOutput.toString()));
 
-        resultPane.setCenter(resultBox);
+        // Add Save button
+        Button saveButton = new Button("Save to Excel");
+        saveButton.setOnAction(e -> {
+            saveDefault(instances, longitudinalList, alignmentList, gaugeList, tgiValues, KL, KA, KG, KOverall, Lmax, Amax, Gmax);
+            resultStage.close();  // Close the current output stage after saving
+        });
+        resultBox.getChildren().add(saveButton);
 
+        resultPane.setCenter(resultBox);
         Scene resultScene = new Scene(resultPane);
         resultStage.setScene(resultScene);
         resultStage.sizeToScene();
@@ -1956,5 +2116,113 @@ public class RailGeometry {
         resultStage.sizeToScene();
         resultStage.setTitle("TGI Variation Results");
         resultStage.show();
+    }
+    
+    private void saveDefault(int instances, List<float[]> longitudinalList, List<float[]> alignmentList, List<float[]> gaugeList,
+            List<Float> tgiValues, float KL, float KA, float KG, float KOverall, float Lmax, float Amax, float Gmax) {
+
+		// Retrieve the path from file_path.txt
+		String filePath = getFilePath();
+		File excelFile = new File(filePath + "/Default.xlsx");
+		
+		try (FileInputStream fis = new FileInputStream(excelFile);
+		Workbook workbook = new XSSFWorkbook(fis)) {
+		
+		Sheet sheet = workbook.getSheetAt(0);
+		int nextRow = getNextAvailableRow(sheet);  // Find the next empty row
+		
+		// **Step 1**: Always write headers after finding the next empty row and moving down by one row
+		nextRow++;  // Move one row down to leave a blank row above the headers
+		Row headerRow = sheet.createRow(nextRow++);
+		headerRow.createCell(0).setCellValue("Run #");
+		headerRow.createCell(1).setCellValue("Instance #");
+		headerRow.createCell(2).setCellValue("L (Input)");
+		headerRow.createCell(3).setCellValue("A (Input)");
+		headerRow.createCell(4).setCellValue("G (Input)");
+		headerRow.createCell(5).setCellValue("L Threshold");
+		headerRow.createCell(6).setCellValue("A Threshold");
+		headerRow.createCell(7).setCellValue("G Threshold");
+		headerRow.createCell(8).setCellValue("L Exceed");
+		headerRow.createCell(9).setCellValue("A Exceed");
+		headerRow.createCell(10).setCellValue("G Exceed");
+		headerRow.createCell(11).setCellValue("TGI (Instance)");
+		headerRow.createCell(12).setCellValue("Threshold TGI");
+		
+		// **Step 2**: Write instance data
+		int runNumber = getNextRunNumber(sheet);  // Calculate the run number
+		for (int i = 0; i < instances; i++) {
+		Row row = sheet.createRow(nextRow++);
+		row.createCell(0).setCellValue(runNumber);  // Run number
+		row.createCell(1).setCellValue(i + 1);  // Instance #
+		row.createCell(2).setCellValue(longitudinalList.get(i)[0]); // L (Input)
+		row.createCell(3).setCellValue(alignmentList.get(i)[0]);    // A (Input)
+		row.createCell(4).setCellValue(gaugeList.get(i)[0]);        // G (Input)
+		row.createCell(5).setCellValue(Lmax);  // L Threshold
+		row.createCell(6).setCellValue(Amax);  // A Threshold
+		row.createCell(7).setCellValue(Gmax);  // G Threshold
+		row.createCell(8).setCellValue(Math.max(0, longitudinalList.get(i)[0] - Lmax)); // L Exceed
+		row.createCell(9).setCellValue(Math.max(0, alignmentList.get(i)[0] - Amax));    // A Exceed
+		row.createCell(10).setCellValue(Math.max(0, gaugeList.get(i)[0] - Gmax));       // G Exceed
+		row.createCell(11).setCellValue(tgiValues.get(i));           // TGI (Instance)
+		row.createCell(12).setCellValue(100);                        // Threshold TGI (always 100)
+		}
+		
+		// **Step 3**: Write run-level summary with the current date
+		Row summaryRow = sheet.createRow(nextRow++);
+		SimpleDateFormat dateFormat = new SimpleDateFormat("MM/dd/yyyy");
+		String currentDate = dateFormat.format(new Date());
+		
+		summaryRow.createCell(0).setCellValue("Run " + runNumber + " Summary:");
+		summaryRow.createCell(1).setCellValue("K (L): " + KL);
+		summaryRow.createCell(2).setCellValue("K (A): " + KA);
+		summaryRow.createCell(3).setCellValue("K (G): " + KG);
+		summaryRow.createCell(4).setCellValue("K (Overall): " + KOverall);
+		summaryRow.createCell(5).setCellValue("Average TGI: " + calculateAverageTGI(tgiValues));
+		summaryRow.createCell(6).setCellValue("Date: " + currentDate);  // Add the date
+		
+		// **Step 4**: Write the workbook back to the file
+		try (FileOutputStream fos = new FileOutputStream(excelFile)) {
+		workbook.write(fos);
+		}
+		
+		} catch (IOException e) {
+		e.printStackTrace();
+		showError("Error writing to Excel file.");
+		}
+		}
+
+    
+    private float calculateAverageTGI(List<Float> tgiValues) {
+        float totalTGI = 0;
+        for (float tgi : tgiValues) {
+            totalTGI += tgi;
+        }
+        return totalTGI / tgiValues.size();
+    }
+    
+    private int getNextRunNumber(Sheet sheet) {
+        int highestRunNumber = 0;
+
+        // Loop through all rows to find the highest run number
+        for (int i = 0; i <= sheet.getLastRowNum(); i++) {
+            Row row = sheet.getRow(i);
+            if (row != null && row.getCell(0) != null && row.getCell(0).getCellType() == CellType.NUMERIC) {
+                int runNumber = (int) row.getCell(0).getNumericCellValue();
+                if (runNumber > highestRunNumber) {
+                    highestRunNumber = runNumber;
+                }
+            }
+        }
+
+        return highestRunNumber + 1;  // Return the next run number
+    }
+
+    private int getNextAvailableRow(Sheet sheet) {
+        int rowNum = sheet.getLastRowNum();
+        while (rowNum >= 0 && (sheet.getRow(rowNum) == null || sheet.getRow(rowNum).getCell(0) == null || 
+                               sheet.getRow(rowNum).getCell(0).getStringCellValue().trim().isEmpty())) {
+            rowNum--;
+        }
+        return rowNum + 1;  // Return the next empty row
     }
 }
