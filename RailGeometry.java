@@ -278,14 +278,14 @@ public class RailGeometry {
         instanceWindow.showAndWait();
     }
 
-    private float[] getTrackClassLimits(int trackClass) {
-    	//helper function, defines track class limits
+    private float[] getTrackClassLimits(String trackClass) {
         switch (trackClass) {
-            case 1: return new float[] {3, 3};
-            case 2: return new float[] {2, 2};
-            case 3: return new float[] {1.75f, 1.75f};
-            case 4: return new float[] {1.5f, 1.5f};
-            case 5: return new float[] {1, 1};
+            case "K0": return new float[] {1.1f, 1.6f};
+            case "K1": return new float[] {1.3f, 1.7f};
+            case "K2": return new float[] {1.5f, 1.9f};
+            case "K3": return new float[] {1.9f, 2.4f};
+            case "K4": return new float[] {2.4f, 3.1f};
+            case "K5": return new float[] {2.9f, 3.6f};
             default: throw new IllegalArgumentException("Invalid Track Class");
         }
     }
@@ -327,22 +327,22 @@ public class RailGeometry {
                     optionName = "Variation 2";
                     break;
                 case 4:
-                    optionName = "Netherlands Track Quality Index";
+                    optionName = "Variation 3";
                     break;
                 case 5:
-                    optionName = "Sweden Q";
+                    optionName = "Netherlands Track Quality Index";
                     break;
                 case 6:
-                    optionName = "J Coefficient";
+                    optionName = "Sweden Q";
                     break;
                 case 7:
-                    optionName = "CN Index";
+                    optionName = "J Coefficient";
                     break;
                 case 8:
-                    optionName = "Track Geometry Index";
+                    optionName = "CN Index";
                     break;
                 case 9:
-                    optionName = "Track Geometry Index Variation";
+                    optionName = "Track Geometry Index";
                     break;
                 default:
                     optionName = "Default";
@@ -404,7 +404,7 @@ public class RailGeometry {
                 case "Track Geometry Index":
                     openTGIWindow();
                     break;
-                case "Track Geometry Index Variation":
+                case "Variation 3":
                     openTGIVarWindow();
                     break;
                 default:
@@ -999,7 +999,7 @@ public class RailGeometry {
 
         Label classLabel = new Label("Track Class: ");
         ComboBox<String> classCombo = new ComboBox<>();
-        classCombo.getItems().addAll("1", "2", "3", "4", "5");
+        classCombo.getItems().addAll("K0","K1", "K2", "K3", "K4", "K5");
 
         Label fileLabel = new Label("Select Excel File: ");
         Button fileButton = new Button("Browse...");
@@ -1019,70 +1019,34 @@ public class RailGeometry {
 
         nextButton.setOnAction(e -> {
             try {
-                int trackClass = Integer.parseInt(classCombo.getValue());
-                float[] limits = getTrackClassLimits(trackClass); // Get Hlim and Slim based on class
+            	String trackClass = classCombo.getValue(); 
+                float[] limits = getTrackClassLimits(trackClass); 
 
                 if (!selectedFileLabel.getText().equals("No file selected")) {
                     File excelFile = new File(selectedFileLabel.getText());
 
-                    List<float[]> HLeftList = new ArrayList<>();
-                    List<float[]> HRightList = new ArrayList<>();
-                    List<float[]> crossLevelsList = new ArrayList<>();
-                    List<float[]> gaugesList = new ArrayList<>();
-                    List<float[]> horizontalDeviationsList = new ArrayList<>(); // We will calculate this
-
-                    // Use Apache POI to read Excel
+                    List<Float> HList = new ArrayList<>();
+                    List<Float> SList = new ArrayList<>();
+                    
                     try (FileInputStream fis = new FileInputStream(excelFile);
                          Workbook workbook = new XSSFWorkbook(fis)) {
                         Sheet sheet = workbook.getSheetAt(0);
 
-                        // Ensure the data is rectangular and correctly separated into instances
-                        int totalColumns = sheet.getRow(0).getLastCellNum();
-                        if (totalColumns % 4 != 0) {  // Expecting 4 columns now (hLeft, hRight, crossLevel, gauge)
-                            throw new IllegalArgumentException("Invalid format: Each instance must have 4 columns.");
-                        }
-
-                        int rowCount = sheet.getPhysicalNumberOfRows();
-                        for (int i = 0; i < totalColumns; i += 4) {  // Jump by 4 columns for each instance
-                            List<Float> hLeft = new ArrayList<>();
-                            List<Float> hRight = new ArrayList<>();
-                            List<Float> crossLevels = new ArrayList<>();
-                            List<Float> gauges = new ArrayList<>();
-                            List<Float> horizontalDeviations = new ArrayList<>(); // For storing |hleft - hright|
-
-                            for (Row row : sheet) {
-                                // Ensure no missing values in the block
-                                for (int j = i; j < i + 4; j++) {
-                                    if (row.getCell(j) == null || row.getCell(j).getCellType() != CellType.NUMERIC) {
-                                        throw new IllegalArgumentException("Invalid format: Missing or non-numeric value detected.");
-                                    }
-                                }
-
-                                // Collect the data from each column in the current 4-column block
-                                float hLeftValue = (float) row.getCell(i).getNumericCellValue();
-                                float hRightValue = (float) row.getCell(i + 1).getNumericCellValue();
-                                hLeft.add(hLeftValue);
-                                hRight.add(hRightValue);
-                                crossLevels.add((float) row.getCell(i + 2).getNumericCellValue());
-                                gauges.add((float) row.getCell(i + 3).getNumericCellValue());
-
-                                // Calculate horizontal deviation as |hLeft - hRight|
-                                horizontalDeviations.add(Math.abs(hLeftValue - hRightValue));
+                        for (Row row : sheet) {
+                            if (row.getCell(0).getCellType() == CellType.NUMERIC && row.getCell(1).getCellType() == CellType.NUMERIC) {
+                                float hValue = (float) row.getCell(0).getNumericCellValue(); // First column is H
+                                float sValue = (float) row.getCell(1).getNumericCellValue(); // Second column is S
+                                HList.add(hValue);
+                                SList.add(sValue);
+                            } else {
+                                throw new IllegalArgumentException("Invalid format: Non-numeric values detected.");
                             }
-
-                            // Add data for the current instance
-                            HLeftList.add(toPrimitiveArray(hLeft));
-                            HRightList.add(toPrimitiveArray(hRight));
-                            crossLevelsList.add(toPrimitiveArray(crossLevels));
-                            gaugesList.add(toPrimitiveArray(gauges));
-                            horizontalDeviationsList.add(toPrimitiveArray(horizontalDeviations));
                         }
-                    } catch (IOException | NullPointerException ex) {
+                    } catch (IOException | IllegalArgumentException ex) {
                         showError("Error reading Excel file or invalid format. Ensure proper data. Click info for help.");
                     }
 
-                    // Pass the data to varTGIswedenQ for processing
-                    varTGIswedenQ(HLeftList.size(), limits[0], limits[1], HLeftList, HRightList, crossLevelsList, gaugesList, horizontalDeviationsList);
+                    varTGIswedenQ(HList.size(), limits[0], limits[1], HList, SList);
                     swedenQWindow.close();
                 } else {
                     showError("Please select an Excel file.");
@@ -1775,25 +1739,22 @@ public class RailGeometry {
         resultStage.show();
     }
    
-    private void varTGIswedenQ(int instances, float Hlim, float Slim, List<float[]> HLeftList, List<float[]> HRightList, List<float[]> crossLevelsList, List<float[]> gaugesList, List<float[]> horizontalDeviationsList) {
+    private void varTGIswedenQ(int instances, float Hlim, float Slim, List<Float> HList, List<Float> SList) {
         List<Float> tgiValues = new ArrayList<>();
         int satisfactoryInstancesH = 0;
         int satisfactoryInstancesS = 0;
         int satisfactoryInstancesOverall = 0;
 
         for (int i = 0; i < instances; i++) {
-            double sigmaH = genH(HLeftList.get(i), HRightList.get(i));
-            double sigmaS = genS(crossLevelsList.get(i), gaugesList.get(i), horizontalDeviationsList.get(i));
+            float sigmaH = HList.get(i);
+            float sigmaS = SList.get(i);
 
-            float sigmaHFloat = (float) sigmaH;
-            float sigmaSFloat = (float) sigmaS;
-
-            float normalizedH = sigmaHFloat / Hlim;
-            float normalizedS = 2 * (sigmaSFloat / Slim);
+            float normalizedH = sigmaH / Hlim;
+            float normalizedS = 2 * (sigmaS / Slim);
 
             float totalDeviation = normalizedH + normalizedS;
-            int roundedDeviation = (int) Math.ceil(totalDeviation);
-            float tgiOut = 150 - (100.0f / 3.0f) * roundedDeviation;
+            int roundedDeviation = (int) Math.ceil(totalDeviation); // Ceiling of the total deviation
+            float tgiOut = 150 - (100.0f / 3.0f) * roundedDeviation; // Sweden QI formula
 
             tgiValues.add(tgiOut);
 
@@ -1802,10 +1763,12 @@ public class RailGeometry {
             if (sigmaH <= Hlim && sigmaS <= Slim) satisfactoryInstancesOverall++;
         }
 
+        // Calculate the K values
         float KH = (float) satisfactoryInstancesH / instances;
         float KS = (float) satisfactoryInstancesS / instances;
         float KOverall = (float) satisfactoryInstancesOverall / instances;
 
+        // Display the results
         resultStage = new Stage();
         BorderPane resultPane = new BorderPane();
         resultPane.setPadding(new Insets(10));
