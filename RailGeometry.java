@@ -413,19 +413,19 @@ public class RailGeometry {
                         optionName = "Variation 3";
                         break;
                     case 5:
-                        optionName = "Netherlands Track Quality Index";
+                        optionName = "Track Geometry Index";
                         break;
                     case 6:
-                        optionName = "Sweden Q";
+                        optionName = "Netherlands Track Quality Index";
                         break;
                     case 7:
-                        optionName = "J Coefficient";
+                        optionName = "Sweden Q";
                         break;
                     case 8:
-                        optionName = "CN Index";
+                        optionName = "J Coefficient";
                         break;
                     case 9:
-                        optionName = "Track Geometry Index";
+                        optionName = "CN Index";
                         break;
                     default:
                         optionName = "Default";
@@ -491,19 +491,19 @@ public class RailGeometry {
                     optionName = "Variation 3";
                     break;
                 case 5:
-                    optionName = "Netherlands Track Quality Index";
+                    optionName = "Track Geometry Index";
                     break;
                 case 6:
-                    optionName = "Sweden Q";
+                    optionName = "Netherlands Track Quality Index";
                     break;
                 case 7:
-                    optionName = "J Coefficient";
+                    optionName = "Sweden Q";
                     break;
                 case 8:
-                    optionName = "CN Index";
+                    optionName = "J Coefficient";
                     break;
                 case 9:
-                    optionName = "Track Geometry Index";
+                    optionName = "CN Index";
                     break;
                 default:
                     optionName = "Default";
@@ -729,7 +729,7 @@ public class RailGeometry {
         Scene scene = new Scene(pane);
         defaultWindow.setScene(scene);
         defaultWindow.sizeToScene();
-        defaultWindow.setTitle("Default TGI Input");
+        defaultWindow.setTitle("Default Index Input");
         defaultWindow.show();
     }
     
@@ -1036,9 +1036,6 @@ public class RailGeometry {
         gridPane.setVgap(10);
         gridPane.setAlignment(Pos.CENTER_LEFT);
 
-        Label notice = new Label("All measurements in inches");
-        notice.setStyle("-fx-font-weight: bold;");
-
         Label fileLabel = new Label("Select Excel File: ");
         Button fileButton = new Button("Browse...");
         Label selectedFileLabel = new Label("No file selected");
@@ -1054,7 +1051,6 @@ public class RailGeometry {
         });
 
         // Add components to grid
-        gridPane.add(notice, 0, 0);
         gridPane.add(fileLabel, 0, 1);
         gridPane.add(fileButton, 1, 1);
         gridPane.add(selectedFileLabel, 1, 2);
@@ -1143,7 +1139,7 @@ public class RailGeometry {
         gridPane.setVgap(10);
         gridPane.setAlignment(Pos.CENTER_LEFT);
 
-        Label notice = new Label("All measurements in inches");
+        Label notice = new Label("All measurements in mm");
         notice.setStyle("-fx-font-weight: bold;");
 
         Label classLabel = new Label("Track Class: ");
@@ -1164,7 +1160,7 @@ public class RailGeometry {
             }
         });
 
-        Button nextButton = new Button("Next");
+        Button nextButton = new Button("Enter");
 
         nextButton.setOnAction(e -> {
             try {
@@ -1330,10 +1326,7 @@ public class RailGeometry {
         gridPane.setHgap(10);
         gridPane.setVgap(10);
         gridPane.setAlignment(Pos.CENTER_LEFT);
-
-        Label notice = new Label("All measurements in inches");
-        notice.setStyle("-fx-font-weight: bold;");
-
+        
         Label fileLabel = new Label("Select Excel File: ");
         Button fileButton = new Button("Browse...");
         Label selectedFileLabel = new Label("No file selected");
@@ -1348,7 +1341,6 @@ public class RailGeometry {
             }
         });
 
-        gridPane.add(notice, 0, 0);
         gridPane.add(fileLabel, 0, 1);
         gridPane.add(fileButton, 1, 1);
         gridPane.add(selectedFileLabel, 1, 2);
@@ -1785,7 +1777,7 @@ public class RailGeometry {
         Scene resultScene = new Scene(resultPane);
         resultStage.setScene(resultScene);
         resultStage.sizeToScene();
-        resultStage.setTitle("Default TGI Results");
+        resultStage.setTitle("Default Index Results");
         resultStage.show();
     }
     
@@ -1959,7 +1951,7 @@ public class RailGeometry {
             double factor = stddev / percentile80;
             float tgiOut = (float) (10 * Math.pow(0.675, factor));
 
-            resultBox.getChildren().add(new Label("Segment " + (i + 1) + " TGI Output: " + tgiOut));
+            resultBox.getChildren().add(new Label("Segment " + (i + 1) + " Output: " + tgiOut));
         }
 
         Button saveButton = new Button("Save to Excel");
@@ -2037,7 +2029,7 @@ public class RailGeometry {
         resultBox.setPadding(new Insets(10));
         resultBox.setAlignment(Pos.CENTER_LEFT);
 
-        resultBox.getChildren().add(new Label("TGI Values: " + tgiValues.toString()));
+        resultBox.getChildren().add(new Label("QI Values: " + tgiValues.toString()));
         resultBox.getChildren().add(new Label(String.format("K (Hlim): %.3f", KH)));
         resultBox.getChildren().add(new Label(String.format("K (Slim): %.3f", KS)));
         resultBox.getChildren().add(new Label(String.format("K (Overall): %.3f", KOverall)));
@@ -2155,9 +2147,9 @@ public class RailGeometry {
         float averageTQI = totalTGI / tgiValues.length;
 
         for (int i = 0; i < categories.length; i++) {
-            resultBox.getChildren().add(new Label(categories[i] + " TGI: " + String.format("%.2f", tgiValues[i])));
+            resultBox.getChildren().add(new Label(categories[i] + " Score: " + String.format("%.2f", tgiValues[i])));
         }
-        resultBox.getChildren().add(new Label("Overall TGI: " + String.format("%.2f", averageTQI)));
+        resultBox.getChildren().add(new Label("Overall Score: " + String.format("%.2f", averageTQI)));
 
         Button saveButton = new Button("Save to Excel");
         saveButton.setOnAction(e -> {
@@ -2212,9 +2204,13 @@ public class RailGeometry {
         float giFac = -1 * ((SDg - SDgN) / (SDgM - SDgN));  
         
         float ui = (float)(100 * (Math.exp(uiFac)));
+        ui = Math.min(ui, 100);
         float ai = (float)(100 * (Math.exp(aiFac)));
+        ai = Math.min(ai, 100);
         float ti = (float)(100 * (Math.exp(tiFac)));
+        ti = Math.min(ti, 100);
         float gi = (float)(100 * (Math.exp(giFac)));
+        gi = Math.min(gi, 100);
         
         float tgiNum = 2 * ui + ti + gi + 6 * ai;
         float TGI = tgiNum / 10;
