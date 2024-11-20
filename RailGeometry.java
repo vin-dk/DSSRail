@@ -1229,7 +1229,7 @@ public class RailGeometry {
         gridPane.setVgap(10);
         gridPane.setAlignment(Pos.CENTER_LEFT);
 
-        Label notice = new Label("All measurements in inches");
+        Label notice = new Label("All measurements in mm");
         notice.setStyle("-fx-font-weight: bold;");
 
         Label fileLabel = new Label("Select Excel File: ");
@@ -1246,21 +1246,29 @@ public class RailGeometry {
             }
         });
 
+        // Speed Dropdown
+        Label speedLabel = new Label("Select Speed (kph):");
+        ComboBox<Integer> speedDropdown = new ComboBox<>();
+        speedDropdown.getItems().addAll(80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200, 220);
+
         gridPane.add(notice, 0, 0);
         gridPane.add(fileLabel, 0, 1);
         gridPane.add(fileButton, 1, 1);
         gridPane.add(selectedFileLabel, 1, 2);
+        gridPane.add(speedLabel, 0, 3);
+        gridPane.add(speedDropdown, 1, 3);
 
         pane.setCenter(gridPane);
 
         Button enterButton = new Button("Enter");
         enterButton.setOnAction(e -> {
-            if (!selectedFileLabel.getText().equals("No file selected")) {
+            if (!selectedFileLabel.getText().equals("No file selected") && speedDropdown.getValue() != null) {
                 File excelFile = new File(selectedFileLabel.getText());
+                int selectedSpeed = speedDropdown.getValue();
 
                 try (FileInputStream fis = new FileInputStream(excelFile);
                      Workbook workbook = new XSSFWorkbook(fis)) {
-                    
+
                     Sheet sheet = workbook.getSheetAt(0);
 
                     if (sheet.getRow(0).getLastCellNum() != 4) {
@@ -1293,14 +1301,14 @@ public class RailGeometry {
                     float SDw = (float) stdv(WArray);
                     float SDe = (float) stdv(EArray);
 
-                    varTGIjCoeff(SDz, SDy, SDw, SDe);
+                    varTGIjCoeff(SDz, SDy, SDw, SDe, selectedSpeed); // Pass the selected speed
                     jCoeffWindow.close();
 
                 } catch (IOException | IllegalArgumentException ex) {
                     showError("Error reading Excel file or invalid format. Ensure the file has exactly 4 numeric columns with equal lengths. Press info for help.");
                 }
             } else {
-                showError("Please select an Excel file.");
+                showError("Please select an Excel file and speed.");
             }
         });
 
@@ -1314,6 +1322,27 @@ public class RailGeometry {
         jCoeffWindow.sizeToScene();
         jCoeffWindow.setTitle("JCoeff Input");
         jCoeffWindow.show();
+    }
+
+    // Define speed limits based on the table you provided
+    private float getSpeedLimit(int speed) {
+        switch (speed) {
+            case 80: return 7.0f;
+            case 90: return 6.2f;
+            case 100: return 5.5f;
+            case 110: return 4.9f;
+            case 120: return 4.0f;
+            case 130: return 3.5f;
+            case 140: return 2.8f;
+            case 150: return 2.3f;
+            case 160: return 2.0f;
+            case 170: return 1.7f;
+            case 180: return 4.6f;
+            case 190: return 1.5f;
+            case 200: return 1.4f;
+            case 220: return 1.1f;
+            default: return Float.MAX_VALUE; // This should not happen if only valid speeds are used
+        }
     }
     
     private void openCNWindow() {
@@ -1694,6 +1723,7 @@ public class RailGeometry {
     
     private void varDefaultTGI(int instances, float Lmax, float Amax, float Gmax, List<float[]> longitudinalList, List<float[]> alignmentList, List<float[]> gaugeList) {
         List<Float> tgiValues = new ArrayList<>();
+        List<String> determinations = new ArrayList<>(); // List to store the determination for each TGI value
         int satisfactoryInstancesL = 0;
         int satisfactoryInstancesA = 0;
         int satisfactoryInstancesG = 0;
@@ -1712,8 +1742,17 @@ public class RailGeometry {
 
             // Calculate the actual TGI
             float tgiOut = 100 - (((exceedL + exceedA + exceedG) / (Lmax + Amax + Gmax)) * 100);
-            tgiOut = Math.round(tgiOut);
+            tgiOut = Math.round(tgiOut * 100.0f) / 100.0f; // Round to 2 decimal places
             tgiValues.add(tgiOut);
+
+            // Determine action level for this TGI value
+            if (tgiOut >= 80) {
+                determinations.add("AL");
+            } else if (tgiOut > 40) {
+                determinations.add("IL");
+            } else {
+                determinations.add("IAL");
+            }
 
             if (l <= Lmax) satisfactoryInstancesL++;
             if (a <= Amax) satisfactoryInstancesA++;
@@ -1738,6 +1777,7 @@ public class RailGeometry {
         resultBox.setAlignment(Pos.CENTER_LEFT);
 
         resultBox.getChildren().add(new Label("TGI Values: " + tgiValues.toString()));
+        resultBox.getChildren().add(new Label("Determination: " + determinations.toString())); // Display the determinations
         resultBox.getChildren().add(new Label(String.format("K (L): %.3f", KL)));
         resultBox.getChildren().add(new Label(String.format("K (A): %.3f", KA)));
         resultBox.getChildren().add(new Label(String.format("K (G): %.3f", KG)));
@@ -1993,6 +2033,7 @@ public class RailGeometry {
    
     private void varTGIswedenQ(int instances, float Hlim, float Slim, List<Float> HList, List<Float> SList) {
         List<Float> tgiValues = new ArrayList<>();
+        List<String> determinationList = new ArrayList<>(); // To store AL, IL, IAL determinations
         int satisfactoryInstancesH = 0;
         int satisfactoryInstancesS = 0;
         int satisfactoryInstancesOverall = 0;
@@ -2005,10 +2046,19 @@ public class RailGeometry {
             float normalizedS = 2 * (sigmaS / Slim);
 
             float totalDeviation = normalizedH + normalizedS;
-            int roundedDeviation = (int) Math.ceil(totalDeviation); // Ceiling of the total deviation
-            float tgiOut = 150 - (100.0f / 3.0f) * roundedDeviation; // Sweden QI formula
+            float tgiOut = 150 - (100.0f / 3.0f) * totalDeviation;
+            tgiOut = Math.round(tgiOut * 100.0f) / 100.0f; // Round to 2 decimal places
 
             tgiValues.add(tgiOut);
+
+            // Determine action level based on tgiOut and add to determinationList
+            if (tgiOut > 116.667) {
+                determinationList.add("AL"); // No maintenance needed
+            } else if (tgiOut > 50) {
+                determinationList.add("IL"); // Need maintenance
+            } else {
+                determinationList.add("IAL"); // Immediate action required
+            }
 
             if (sigmaH <= Hlim) satisfactoryInstancesH++;
             if (sigmaS <= Slim) satisfactoryInstancesS++;
@@ -2030,6 +2080,7 @@ public class RailGeometry {
         resultBox.setAlignment(Pos.CENTER_LEFT);
 
         resultBox.getChildren().add(new Label("QI Values: " + tgiValues.toString()));
+        resultBox.getChildren().add(new Label("Determination: " + determinationList.toString())); // Display determinations
         resultBox.getChildren().add(new Label(String.format("K (Hlim): %.3f", KH)));
         resultBox.getChildren().add(new Label(String.format("K (Slim): %.3f", KS)));
         resultBox.getChildren().add(new Label(String.format("K (Overall): %.3f", KOverall)));
@@ -2071,11 +2122,15 @@ public class RailGeometry {
         resultStage.show();
     }
     
-    private void varTGIjCoeff (float SDz, float SDy, float SDw, float SDe) {
-    	float fac = (float) (0.5 * SDe);
-    	float num = SDz * SDy * SDw * fac;
-        tgiOut = (float) (num / 3.5);
-    	
+    private void varTGIjCoeff(float SDz, float SDy, float SDw, float SDe, int speed) {
+        float fac = (float) (0.5 * SDe);
+        float num = SDz * SDy * SDw * fac;
+        float tgiOut = (float) (num / 3.5);
+        tgiOut = Math.round(tgiOut * 100.0f) / 100.0f; // Round to 2 decimal places
+
+        float limit = getSpeedLimit(speed);
+        String designation = tgiOut > limit ? "AL" : "BL"; // Determine AL or BL based on the limit
+
         resultStage = new Stage();
         BorderPane resultPane = new BorderPane();
         resultPane.setPadding(new Insets(10));
@@ -2085,6 +2140,7 @@ public class RailGeometry {
         resultBox.setAlignment(Pos.CENTER_LEFT);
 
         resultBox.getChildren().add(new Label("J Output: " + tgiOut));
+        resultBox.getChildren().add(new Label("Speed, limit, designation: " + speed + " kph, " + limit + ", " + designation));
 
         Button saveButton = new Button("Save to Excel");
         saveButton.setOnAction(e -> {
@@ -2094,31 +2150,31 @@ public class RailGeometry {
 
         Button helpButton = new Button("?");
         helpButton.setStyle(
-            "-fx-background-color: lightgray; " +   
-            "-fx-text-fill: black; " +              
-            "-fx-font-weight: bold; " +             
-            "-fx-background-radius: 15; " +         
-            "-fx-padding: 2; " +                    
-            "-fx-min-width: 20px; " +               
-            "-fx-min-height: 20px; " +              
-            "-fx-max-width: 20px; " +               
-            "-fx-max-height: 20px;"                 
+            "-fx-background-color: lightgray; " +
+            "-fx-text-fill: black; " +
+            "-fx-font-weight: bold; " +
+            "-fx-background-radius: 15; " +
+            "-fx-padding: 2; " +
+            "-fx-min-width: 20px; " +
+            "-fx-min-height: 20px; " +
+            "-fx-max-width: 20px; " +
+            "-fx-max-height: 20px;"
         );
-        helpButton.setOnAction(e -> showInfoPopup());  // Placeholder for future functionality
+        helpButton.setOnAction(e -> showInfoPopup());
 
-        HBox buttonBox = new HBox(10); 
+        HBox buttonBox = new HBox(10);
         buttonBox.getChildren().addAll(saveButton, helpButton);
 
         resultBox.getChildren().add(buttonBox);
-        
+
         ScrollPane scrollPane = new ScrollPane(resultBox);
         scrollPane.setFitToWidth(true);
 
         resultPane.setCenter(scrollPane);
 
         Scene resultScene = new Scene(resultPane);
-        resultStage.sizeToScene();
         resultStage.setScene(resultScene);
+        resultStage.sizeToScene();
         resultStage.setTitle("J Coefficient Results");
         resultStage.show();
     }
@@ -2146,11 +2202,27 @@ public class RailGeometry {
         }
         float averageTQI = totalTGI / tgiValues.length;
 
+        // Add individual category scores
         for (int i = 0; i < categories.length; i++) {
             resultBox.getChildren().add(new Label(categories[i] + " Score: " + String.format("%.2f", tgiValues[i])));
         }
+
         resultBox.getChildren().add(new Label("Overall Score: " + String.format("%.2f", averageTQI)));
 
+        // Determine action level based on averageTQI
+        String determination;
+        if (averageTQI >= 800) {
+            determination = "AL (No Maintenance)";
+        } else if (averageTQI > 400) {
+            determination = "IL (Need Maintenance)";
+        } else {
+            determination = "IAL (Immediate Action Required)";
+        }
+
+        // Display the determination
+        resultBox.getChildren().add(new Label("Determination: " + determination));
+
+        // Add save and help buttons
         Button saveButton = new Button("Save to Excel");
         saveButton.setOnAction(e -> {
             // save method here
@@ -2190,72 +2262,82 @@ public class RailGeometry {
     
     private void varTGI(float SDu, float SDa, float SDt, float SDg, float SDuN, float SDaN, float SDtN, float SDgN,
             float SDuM, float SDaM, float SDtM, float SDgM) {
-        resultStage = new Stage();
-        BorderPane resultPane = new BorderPane();
-        resultPane.setPadding(new Insets(10));
+    	resultStage = new Stage();
+    	BorderPane resultPane = new BorderPane();
+    	resultPane.setPadding(new Insets(10));
 
-        VBox resultBox = new VBox(10);
-        resultBox.setPadding(new Insets(10));
-        resultBox.setAlignment(Pos.CENTER_LEFT);
-        
-        float uiFac = -1 * ((SDu - SDuN) / (SDuM - SDuN));
-        float aiFac = -1 * ((SDa - SDaN) / (SDaM - SDaN));
-        float tiFac = -1 * ((SDt - SDtN) / (SDtM - SDtN));
-        float giFac = -1 * ((SDg - SDgN) / (SDgM - SDgN));  
-        
-        float ui = (float)(100 * (Math.exp(uiFac)));
-        ui = Math.min(ui, 100);
-        float ai = (float)(100 * (Math.exp(aiFac)));
-        ai = Math.min(ai, 100);
-        float ti = (float)(100 * (Math.exp(tiFac)));
-        ti = Math.min(ti, 100);
-        float gi = (float)(100 * (Math.exp(giFac)));
-        gi = Math.min(gi, 100);
-        
-        float tgiNum = 2 * ui + ti + gi + 6 * ai;
-        float TGI = tgiNum / 10;
+    	VBox resultBox = new VBox(10);
+    	resultBox.setPadding(new Insets(10));
+    	resultBox.setAlignment(Pos.CENTER_LEFT);
 
-        resultBox.getChildren().add(new Label("UI: " + String.format("%.2f", ui)));
-        resultBox.getChildren().add(new Label("AI: " + String.format("%.2f", ai)));
-        resultBox.getChildren().add(new Label("TI: " + String.format("%.2f", ti)));
-        resultBox.getChildren().add(new Label("GI: " + String.format("%.2f", gi)));
-        resultBox.getChildren().add(new Label("Overall TGI: " + String.format("%.2f", TGI)));
+    	float uiFac = -1 * ((SDu - SDuN) / (SDuM - SDuN));
+    	float aiFac = -1 * ((SDa - SDaN) / (SDaM - SDaN));
+    	float tiFac = -1 * ((SDt - SDtN) / (SDtM - SDtN));
+    	float giFac = -1 * ((SDg - SDgN) / (SDgM - SDgN));  
 
-        Button saveButton = new Button("Save to Excel");
-        saveButton.setOnAction(e -> {
-            // save method here
-            resultStage.close();  
-        });
+    	float ui = (float)(100 * (Math.exp(uiFac)));
+    	float ai = (float)(100 * (Math.exp(aiFac)));
+    	float ti = (float)(100 * (Math.exp(tiFac)));
+    	float gi = (float)(100 * (Math.exp(giFac)));
 
-        Button helpButton = new Button("?");
-        helpButton.setStyle(
-            "-fx-background-color: lightgray; " +   
-            "-fx-text-fill: black; " +              
-            "-fx-font-weight: bold; " +             
-            "-fx-background-radius: 15; " +         
-            "-fx-padding: 2; " +                    
-            "-fx-min-width: 20px; " +               
-            "-fx-min-height: 20px; " +              
-            "-fx-max-width: 20px; " +               
-            "-fx-max-height: 20px;"                 
-        );
-        helpButton.setOnAction(e -> showInfoPopup());  // Placeholder for future functionality
+    	float tgiNum = 2 * ui + ti + gi + 6 * ai;
+    	float TGI = tgiNum / 10;
 
-        HBox buttonBox = new HBox(10); 
-        buttonBox.getChildren().addAll(saveButton, helpButton);
+    	resultBox.getChildren().add(new Label("UI: " + String.format("%.2f", ui)));
+    	resultBox.getChildren().add(new Label("AI: " + String.format("%.2f", ai)));
+    	resultBox.getChildren().add(new Label("TI: " + String.format("%.2f", ti)));
+    	resultBox.getChildren().add(new Label("GI: " + String.format("%.2f", gi)));
+    	resultBox.getChildren().add(new Label("Overall TGI: " + String.format("%.2f", TGI)));
 
-        resultBox.getChildren().add(buttonBox);
-        
-        ScrollPane scrollPane = new ScrollPane(resultBox);
-        scrollPane.setFitToWidth(true);
+    	// Determine action level based on TGI
+    	String determination;
+    	if (TGI >= 80) {
+    		determination = "AL (No Maintenance)";
+    	} else if (TGI > 40) {
+    		determination = "IL (Need Maintenance)";
+    	} else {
+    		determination = "IAL (Immediate Action Required)";
+    	}
 
-        resultPane.setCenter(scrollPane);
+    	// Display the determination
+    	resultBox.getChildren().add(new Label("Determination: " + determination));
 
-        Scene resultScene = new Scene(resultPane);
-        resultStage.setScene(resultScene);
-        resultStage.sizeToScene();
-        resultStage.setTitle("TGI Results");
-        resultStage.show();
+    	// Add save and help buttons
+    	Button saveButton = new Button("Save to Excel");
+    	saveButton.setOnAction(e -> {
+    		// save method here
+    		resultStage.close();  
+    	});
+
+    	Button helpButton = new Button("?");
+    	helpButton.setStyle(
+    			"-fx-background-color: lightgray; " +   
+    					"-fx-text-fill: black; " +              
+    					"-fx-font-weight: bold; " +             
+    					"-fx-background-radius: 15; " +         
+    					"-fx-padding: 2; " +                    
+    					"-fx-min-width: 20px; " +               
+    					"-fx-min-height: 20px; " +              
+    					"-fx-max-width: 20px; " +               
+    					"-fx-max-height: 20px;"                 
+    			);
+    	helpButton.setOnAction(e -> showInfoPopup());  // Placeholder for future functionality
+
+    	HBox buttonBox = new HBox(10); 
+    	buttonBox.getChildren().addAll(saveButton, helpButton);
+
+    	resultBox.getChildren().add(buttonBox);
+
+    	ScrollPane scrollPane = new ScrollPane(resultBox);
+    	scrollPane.setFitToWidth(true);
+
+    	resultPane.setCenter(scrollPane);
+
+    	Scene resultScene = new Scene(resultPane);
+    	resultStage.setScene(resultScene);
+    	resultStage.sizeToScene();
+    	resultStage.setTitle("TGI Results");
+    	resultStage.show();
     }
     
     private void varTGIvar(List<Float[]> instances, float Lmax, float Amax, float Gmax) {
