@@ -331,3 +331,5 @@ def sim(file_path, interval_months, time_length_months):
         print("\n")  # Separate runs with a new line
 
     return mass_data
+
+sim(r"C:\Users\13046\mock_track_data.xlsx", 1, 100)
