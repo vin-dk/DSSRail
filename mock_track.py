@@ -7,7 +7,7 @@ def generate_dates(start_date, total_months):
     dates = [start_date + timedelta(days=30 * i) for i in range(total_months)]
     return dates
 
-def generate_dlls_and_tamping(dates, al=1.0, il=1.5, initial_dll=0.5, degradation_rate=0.05):
+def generate_dlls_and_tamping(dates, al=1.0, il=1.5, initial_dll=0.5):
     """Generate DLLs, tamping flags, and tamping types according to implantation logic."""
     total_months = len(dates)
     dlls = []
@@ -40,6 +40,7 @@ def generate_dlls_and_tamping(dates, al=1.0, il=1.5, initial_dll=0.5, degradatio
 
         # Degrade the DLL for the next month if no tamping occurred
         if tamping_performed[-1] == 0:
+            degradation_rate = random.uniform(0.03, 0.07)  # Random degradation rate between 0.03 and 0.07
             current_dll += degradation_rate
 
     return dlls, tamping_performed, tamping_type

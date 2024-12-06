@@ -256,6 +256,15 @@ def sim(file_path, interval_months, time_length_months):
     recovery_coefficients = input_data["recovery_coefficients"]
     defect_coefficients = input_data["defect_coefficients"]
 
+    # Clean recovery coefficients for display
+    recovery_coefficients_cleaned = {key: round(float(value), 2) for key, value in recovery_coefficients.items()}
+
+    # Aggregation variables
+    tamping_counts = {"none": 0, "partial": 0, "complete": 0}
+    degradation_values = []
+    recovery_values = []
+    probabilities = {"P1": [], "P2": [], "P3": []}
+
     # Simulate through each interval
     for interval in range(total_intervals):
         print(f"Run {interval + 1}")  # Indicate the current run in the console
@@ -287,16 +296,39 @@ def sim(file_path, interval_months, time_length_months):
         # Update current DLL_s for the next interval
         current_DLL_s = step_results["updated_DLL_s"]
 
+        # Aggregate data
+        degradation_values.append(step_results["degradation_val"])
+        recovery_values.append(step_results["recovery_adjustment"])
+        probabilities["P1"].append(step_results["defect_probabilities"]["P1"])
+        probabilities["P2"].append(step_results["defect_probabilities"]["P2"])
+        probabilities["P3"].append(step_results["defect_probabilities"]["P3"])
+        tamping_status = step_results["tamping_status"]
+        if tamping_status is None:
+            tamping_counts["none"] += 1
+        else:
+            tamping_counts[tamping_status] += 1
+
         # Print interval data to console
         for key, value in interval_data.items():
             print(f"{key}: {value}")
         print("\n")  # Separate runs with a new line
 
+    # Compute averages
+    avg_degradation = sum(degradation_values) / len(degradation_values) if degradation_values else 0
+    avg_recovery = sum(recovery_values) / len(recovery_values) if recovery_values else 0
+    avg_probabilities = {key: sum(values) / len(values) if values else 0 for key, values in probabilities.items()}
+
     # Print session-wide data at the end
     print("\nSession Data:")
-    print(f"degradation_rate_mean: {degradation_rate_mean}")
-    print(f"degradation_rate_stddev: {degradation_rate_stddev}")
-    print(f"recovery_coefficients: {recovery_coefficients}")
+    print(f"degradation_rate_mean: {round(degradation_rate_mean, 2)}")
+    print(f"degradation_rate_stddev: {round(degradation_rate_stddev, 2)}")
+    print(f"recovery_coefficients: {recovery_coefficients_cleaned}")
+    print(f"tamping_counts: {tamping_counts}")
+    print(f"Average degradation: {round(avg_degradation, 2)}")
+    print(f"Average recovery value: {round(avg_recovery, 2)}")
+    print(f"Average P1: {round(avg_probabilities['P1'], 2)}")
+    print(f"Average P2: {round(avg_probabilities['P2'], 2)}")
+    print(f"Average P3: {round(avg_probabilities['P3'], 2)}")
 
     return mass_data
 
