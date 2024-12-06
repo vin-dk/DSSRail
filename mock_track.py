@@ -17,9 +17,9 @@ def generate_dlls_and_tamping(dates, al=1.0, il=1.5, initial_dll=0.5, degradatio
     current_dll = initial_dll
     for i in range(total_months):
         # Artificial Inflation for Tamping Scenarios
-        if i > 0 and i % 6 == 0:  # Corrective Tamping (every 6 months)
+        if i > 0 and i % 15 == 0:  # Corrective Tamping (every 15 months)
             current_dll = random.uniform(il + 0.01, il + 0.5)  # Artificially inflate DLL above IL
-        elif i > 0 and i % 4 == 0:  # Preventative Tamping (every 4 months)
+        elif i > 0 and i % 6 == 0:  # Preventative Tamping (every 6 months)
             current_dll = random.uniform(al, il)  # Artificially inflate DLL between AL and IL
 
         # Append DLL before applying tamping
