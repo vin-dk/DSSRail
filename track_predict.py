@@ -253,8 +253,8 @@ def sim(file_path, interval_months, time_length_months):
     current_DLL_s = input_data["D0LL_s"]
     degradation_rate_mean = input_data["degradation_rate_mean"]
     degradation_rate_stddev = input_data["degradation_rate_stddev"]
-    defect_coefficients = input_data["defect_coefficients"]
     recovery_coefficients = input_data["recovery_coefficients"]
+    defect_coefficients = input_data["defect_coefficients"]
 
     # Simulate through each interval
     for interval in range(total_intervals):
@@ -279,9 +279,6 @@ def sim(file_path, interval_months, time_length_months):
             "updated_DLL_s": step_results["updated_DLL_s"],
             "defect_probabilities": step_results["defect_probabilities"],
             "tamping_status": step_results["tamping_status"],
-            "degradation_rate_mean": degradation_rate_mean,
-            "degradation_rate_stddev": degradation_rate_stddev,
-            "recovery_coefficients": recovery_coefficients
         }
 
         # Append interval data to mass data structure
@@ -295,6 +292,14 @@ def sim(file_path, interval_months, time_length_months):
             print(f"{key}: {value}")
         print("\n")  # Separate runs with a new line
 
+    # Print session-wide data at the end
+    print("\nSession Data:")
+    print(f"degradation_rate_mean: {degradation_rate_mean}")
+    print(f"degradation_rate_stddev: {degradation_rate_stddev}")
+    print(f"recovery_coefficients: {recovery_coefficients}")
+
     return mass_data
 
+
+# Example usage
 sim(r"C:\Users\13046\mock_track_data.xlsx", 1, 100)
