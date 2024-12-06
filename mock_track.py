@@ -17,9 +17,9 @@ def generate_dlls_and_tamping(dates, al=1.0, il=1.5, initial_dll=0.5, degradatio
     current_dll = initial_dll
     for i in range(total_months):
         # Artificial Inflation for Tamping Scenarios
-        if i > 0 and i % 100 == 0:  # Corrective Tamping (every 100 months)
+        if i > 0 and i % 6 == 0:  # Corrective Tamping (every 6 months)
             current_dll = random.uniform(il + 0.01, il + 0.5)  # Artificially inflate DLL above IL
-        elif i > 0 and i % 12 == 0:  # Preventative Tamping (every 12 months)
+        elif i > 0 and i % 4 == 0:  # Preventative Tamping (every 4 months)
             current_dll = random.uniform(al, il)  # Artificially inflate DLL between AL and IL
 
         # Append DLL before applying tamping
@@ -48,7 +48,7 @@ def write_to_excel(dates, dlls, tamping_performed, tamping_type, file_path):
     """Write the generated data to an Excel file."""
     data = {
         "Date": [date.strftime('%Y-%m-%d') for date in dates],
-        "DLLs Measurement": dlls,
+        "DLL_s Measurement": dlls,
         "Tamping Performed": tamping_performed,
         "Tamping Type": tamping_type,
     }
@@ -59,7 +59,7 @@ def write_to_excel(dates, dlls, tamping_performed, tamping_type, file_path):
 def main():
     # Parameters
     start_date = datetime(2002, 1, 1)
-    total_months = 1000
+    total_months = 100
     output_file = "mock_track_data.xlsx"
 
     # Step 1: Generate dates

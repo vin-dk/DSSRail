@@ -40,7 +40,7 @@ def take_in(file_path):
     results["degradation_rate_stddev"] = np.std(degradation_rates)
 
     ## 3. Defect Probability Coefficients
-    AL, IL, IAL = 1.5, 2.0, 3.0
+    AL, IL, IAL = 1.0, 1.5, 2.0
     data["Defect Level"] = np.select(
         [data["DLL_s Measurement"] <= AL, 
          (data["DLL_s Measurement"] > AL) & (data["DLL_s Measurement"] <= IL),
@@ -49,9 +49,11 @@ def take_in(file_path):
     )
     X = data[["DLL_s Measurement"]].values
     y = data["Defect Level"].values
+    print(f"Unique classes in y: {np.unique(y)}")
+    print(data["Defect Level"].value_counts())
     if len(X) < 3:
         raise ValueError("Insufficient data points for logistic regression.")
-    model = LogisticRegression(multi_class="multinomial", solver="lbfgs").fit(X, y)
+    model = LogisticRegression(solver="lbfgs", multi_class="multinomial").fit(X, y)
     results["defect_coefficients"] = {
         "C_0": model.intercept_[0],
         "C_1": model.intercept_[1],
