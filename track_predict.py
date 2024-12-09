@@ -1,17 +1,15 @@
 import pandas as pd
 from sklearn.linear_model import LogisticRegression, LinearRegression
 import numpy as np
+import os
 
 def take_in(file_path):
-    # Load the data
     data = pd.read_excel(file_path)
     
-    # Ensure required columns are present
     required_columns = ["Date", "DLL_s Measurement", "Tamping Performed", "Tamping Type"]
     if not all(col in data.columns for col in required_columns):
         raise ValueError(f"Input file must contain the following columns: {required_columns}")
     
-    # Convert the Date column to datetime for easier manipulation
     data['Date'] = pd.to_datetime(data['Date'])
     data = data.sort_values(by="Date")
     results = {}
@@ -31,14 +29,13 @@ def take_in(file_path):
     
     degradation_rates = []
     for i in range(len(tamping_indices) - 1):
-        # Skip the row of the tamping event to avoid including recovery effects
         start_row = data.loc[tamping_indices[i] + 1] if (tamping_indices[i] + 1 < len(data)) else None
         end_row = data.loc[tamping_indices[i + 1]]
         
         if start_row is not None:
             delta_DLL = end_row["DLL_s Measurement"] - start_row["DLL_s Measurement"]
             delta_time = (end_row["Date"] - start_row["Date"]).days
-            if delta_time > 0:  # Avoid zero or negative intervals
+            if delta_time > 0:  
                 degradation_rate = delta_DLL / delta_time
                 degradation_rates.append(degradation_rate)
     
@@ -49,7 +46,7 @@ def take_in(file_path):
     results["degradation_rate_stddev"] = np.std(degradation_rates)
 
     ## 3. Defect Probability Coefficients
-    AL, IL, IAL = 1.0, 1.5, 2.0  # Limits as defined in the paper
+    AL, IL, IAL = 1.0, 1.5, 2.0 #  real lim: 1.5, 2.0, 3.0
     data["Defect Level"] = np.select(
         [data["DLL_s Measurement"] <= AL, 
          (data["DLL_s Measurement"] > AL) & (data["DLL_s Measurement"] <= IL),
@@ -102,38 +99,31 @@ def degrade(current_DLL_s, degradation_rate_mean, degradation_rate_stddev, delta
     """
     Models the degradation progression over a given time interval.
     """
-    # Sample the degradation rate from a normal distribution
     b_s = np.random.normal(degradation_rate_mean, degradation_rate_stddev)
     
-    # Sample the random noise from a normal distribution using degradation rate stddev
     epsilon_s = np.random.normal(0, degradation_rate_stddev)  
     
-    # Compute the updated degradation value
     next_DLL_s = current_DLL_s + b_s * delta_t + epsilon_s
     
-    return max(0, next_DLL_s)  # Ensure degradation value is non-negative
+    return max(0, next_DLL_s)  
 
 def defect(current_DLL_s, defect_coefficients):
     """
     Calculates defect probabilities for the current degradation state using a softmax approach.
     """
-    # Extract coefficients
     C_0 = defect_coefficients["C_0"]
     C_1 = defect_coefficients["C_1"]
     b = defect_coefficients["b"]
 
-    # Calculate logits for each class
     logits = np.array([
-        C_0 + b * current_DLL_s,  # Logit for Defect Level 1 (P1)
-        C_1 + b * current_DLL_s,  # Logit for Defect Level 2 (P2)
-        0                         # Logit for Defect Level 3 (baseline class)
+        C_0 + b * current_DLL_s,  
+        C_1 + b * current_DLL_s,
+        0                        
     ])
 
-    # Apply the softmax function
-    exp_logits = np.exp(logits - np.max(logits))  # Stability adjustment
+    exp_logits = np.exp(logits - np.max(logits))  
     probabilities = exp_logits / np.sum(exp_logits)
 
-    # Map to named probabilities
     probabilities_dict = {
         "P1": probabilities[0],
         "P2": probabilities[1],
@@ -147,7 +137,6 @@ def recovery(current_DLL_s, recovery_coefficients, tamping_type):
     """
     Models the recovery of degradation after a tamping event.
     """
-    # Extract coefficients
     alpha_1 = recovery_coefficients["alpha_1"]
     beta_1 = recovery_coefficients["beta_1"]
     beta_2 = recovery_coefficients["beta_2"]
@@ -155,10 +144,8 @@ def recovery(current_DLL_s, recovery_coefficients, tamping_type):
     
     noise_stddev=np.sqrt(0.15)
     
-    # Sample the random noise
-    epsilon_LL = np.random.normal(0, noise_stddev)  # Fixed noise stddev as per the paper
+    epsilon_LL = np.random.normal(0, noise_stddev)
     
-    # Calculate the recovery value (R_LL_s)
     R_LL_s = (
         alpha_1 +
         beta_1 * current_DLL_s +
@@ -167,8 +154,7 @@ def recovery(current_DLL_s, recovery_coefficients, tamping_type):
         epsilon_LL
     )
     
-    # Update the degradation value after recovery
-    updated_DLL_s = max(0, current_DLL_s - R_LL_s)  # Ensure non-negative DLL_s
+    updated_DLL_s = max(0, current_DLL_s - R_LL_s)  
     
     return updated_DLL_s
 
@@ -196,19 +182,15 @@ def compute(current_DLL_s, degradation_rate_mean, degradation_rate_stddev, delta
         - Defect probabilities (P1, P2, P3).
         - Tamping status (None, partial, or complete).
     """
-    # Step 1: Degrade
     next_DLL_s_before_recovery = degrade(current_DLL_s, degradation_rate_mean, degradation_rate_stddev, delta_t)
     degradation_val = next_DLL_s_before_recovery - current_DLL_s  # Calculate degradation value
 
-    # Step 2: Defect
     defect_probs = defect(next_DLL_s_before_recovery, defect_coefficients)
 
-    # Step 3: Recovery (if necessary)
     tamping_status = None
-    recovery_adjustment = 0  # Default is no recovery adjustment
-    updated_DLL_s = next_DLL_s_before_recovery  # Default case: no tamping/recovery
+    recovery_adjustment = 0  
+    updated_DLL_s = next_DLL_s_before_recovery 
     if next_DLL_s_before_recovery > IL:
-        # Partial tamping (CM, corrective)
         tamping_status = "partial"
         updated_DLL_s = recovery(next_DLL_s_before_recovery, recovery_coefficients, tamping_type=0)
         recovery_adjustment = next_DLL_s_before_recovery - updated_DLL_s
@@ -218,11 +200,10 @@ def compute(current_DLL_s, degradation_rate_mean, degradation_rate_stddev, delta
         updated_DLL_s = recovery(next_DLL_s_before_recovery, recovery_coefficients, tamping_type=1)
         recovery_adjustment = next_DLL_s_before_recovery - updated_DLL_s
 
-    # Return results for the next step
     return {
         "current_DLL_s": current_DLL_s,
         "degradation_val": degradation_val,
-        "recovery_adjustment": recovery_adjustment,  # Log the recovery adjustment
+        "recovery_adjustment": recovery_adjustment, 
         "updated_DLL_s": updated_DLL_s,
         "defect_probabilities": defect_probs,
         "tamping_status": tamping_status
@@ -241,14 +222,11 @@ def sim(file_path, interval_months, time_length_months):
     Returns:
     - mass_data: list, containing data for all runs and intervals.
     """
-    # Calculate the total number of intervals
     total_intervals = time_length_months // interval_months
-    delta_t_days = interval_months * 30  # Approximate days in one month
+    delta_t_days = interval_months * 30 
 
-    # Prepare structure to store all runs
     mass_data = []
 
-    # Load initial data
     input_data = take_in(file_path)
     current_DLL_s = input_data["D0LL_s"]
     degradation_rate_mean = input_data["degradation_rate_mean"]
@@ -256,20 +234,16 @@ def sim(file_path, interval_months, time_length_months):
     recovery_coefficients = input_data["recovery_coefficients"]
     defect_coefficients = input_data["defect_coefficients"]
 
-    # Clean recovery coefficients for display
     recovery_coefficients_cleaned = {key: round(float(value), 2) for key, value in recovery_coefficients.items()}
 
-    # Aggregation variables
     tamping_counts = {"none": 0, "partial": 0, "complete": 0}
     degradation_values = []
     recovery_values = []
     probabilities = {"P1": [], "P2": [], "P3": []}
 
-    # Simulate through each interval
     for interval in range(total_intervals):
-        print(f"Run {interval + 1}")  # Indicate the current run in the console
+        print(f"Run {interval + 1}")
 
-        # Perform one simulation step
         step_results = compute(
             current_DLL_s,
             degradation_rate_mean,
@@ -279,7 +253,6 @@ def sim(file_path, interval_months, time_length_months):
             recovery_coefficients
         )
 
-        # Collect data for this interval
         interval_data = {
             "run": interval + 1,
             "current_DLL_s": step_results["current_DLL_s"],
@@ -290,13 +263,10 @@ def sim(file_path, interval_months, time_length_months):
             "tamping_status": step_results["tamping_status"],
         }
 
-        # Append interval data to mass data structure
         mass_data.append(interval_data)
 
-        # Update current DLL_s for the next interval
         current_DLL_s = step_results["updated_DLL_s"]
 
-        # Aggregate data
         degradation_values.append(step_results["degradation_val"])
         recovery_values.append(step_results["recovery_adjustment"])
         probabilities["P1"].append(step_results["defect_probabilities"]["P1"])
@@ -308,21 +278,21 @@ def sim(file_path, interval_months, time_length_months):
         else:
             tamping_counts[tamping_status] += 1
 
-        # Print interval data to console
         for key, value in interval_data.items():
             print(f"{key}: {value}")
-        print("\n")  # Separate runs with a new line
+        print("\n") 
 
-    # Compute averages
     avg_degradation = sum(degradation_values) / len(degradation_values) if degradation_values else 0
     avg_recovery = sum(recovery_values) / len(recovery_values) if recovery_values else 0
     avg_probabilities = {key: sum(values) / len(values) if values else 0 for key, values in probabilities.items()}
 
-    # Print session-wide data at the end
+    defect_coefficients_cleaned = {key: round(float(value), 2) for key, value in defect_coefficients.items()}
+
     print("\nSession Data:")
     print(f"degradation_rate_mean: {round(degradation_rate_mean, 2)}")
     print(f"degradation_rate_stddev: {round(degradation_rate_stddev, 2)}")
     print(f"recovery_coefficients: {recovery_coefficients_cleaned}")
+    print(f"defect_coefficients: {defect_coefficients_cleaned}")
     print(f"tamping_counts: {tamping_counts}")
     print(f"Average degradation: {round(avg_degradation, 2)}")
     print(f"Average recovery value: {round(avg_recovery, 2)}")
@@ -332,6 +302,38 @@ def sim(file_path, interval_months, time_length_months):
 
     return mass_data
 
+def sim_track(directory_path, interval_months, time_length_months):
+    """
+    Simulates the degradation and recovery process for multiple tracks, represented by Excel files
+    in a given directory.
 
-# Example usage
+    Parameters:
+    - directory_path: str, path to the directory containing Excel files for multiple tracks.
+    - interval_months: int, the time interval in months between each step.
+    - time_length_months: int, the total simulation time length in months.
+
+    Returns:
+    - results: dict, containing simulation results for each track segment.
+    """
+    if not os.path.exists(directory_path):
+        raise ValueError(f"The directory '{directory_path}' does not exist.")
+    
+    excel_files = [file for file in os.listdir(directory_path) if file.endswith(('.xlsx', '.xls'))]
+    if not excel_files:
+        raise ValueError(f"No Excel files found in the directory '{directory_path}'.")
+
+    results = {}
+
+    for i, file_name in enumerate(excel_files, start=1):
+        file_path = os.path.join(directory_path, file_name)
+        print(f"Track Segment {i}: {file_name}") 
+        try:
+            segment_results = sim(file_path, interval_months, time_length_months)
+            results[f"Track Segment {i}"] = segment_results
+        except Exception as e:
+            print(f"Error processing '{file_name}': {e}")
+            continue
+
+    return results
+
 sim(r"C:\Users\13046\mock_track_data.xlsx", 1, 100)
