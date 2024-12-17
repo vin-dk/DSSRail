@@ -52,6 +52,37 @@ def write_to_excel(dates, dlls, tamping_performed, tamping_type, file_path):
     df = pd.DataFrame(data)
     df.to_excel(file_path, index=False)
     print(f"Data successfully written to {file_path}")
+    
+
+def track_create(num_tracks, start_date=datetime(2002, 1, 1), total_months=100):
+    """
+    Generate mock track data for multiple sections of track and store them in a dedicated directory.
+    
+    Parameters:
+        num_tracks (int): Number of track sections (Excel files) to generate.
+        start_date (datetime): Start date for the simulation.
+        total_months (int): Duration in months for each track section.
+    """
+    home_dir = os.path.expanduser("~")
+    track_data_dir = os.path.join(home_dir, "track_data")
+
+    if not os.path.exists(track_data_dir):
+        os.makedirs(track_data_dir)
+        print(f"Directory created: {track_data_dir}")
+    else:
+        print(f"Directory already exists: {track_data_dir}")
+
+    for i in range(1, num_tracks + 1):
+        print(f"Generating data for Track Section {i}...")
+        dates = generate_dates(start_date, total_months)
+        dlls, tamping_performed, tamping_type = generate_dlls_and_tamping(dates)
+
+        file_name = f"mock_track_data_{i}.xlsx"
+        file_path = os.path.join(track_data_dir, file_name)
+
+        write_to_excel(dates, dlls, tamping_performed, tamping_type, file_path)
+
+    print(f"\nAll {num_tracks} track sections generated successfully in: {track_data_dir}")
 
 def main():
     start_date = datetime(2002, 1, 1)
@@ -63,6 +94,8 @@ def main():
     dlls, tamping_performed, tamping_type = generate_dlls_and_tamping(dates)
 
     write_to_excel(dates, dlls, tamping_performed, tamping_type, output_file)
+    
+
 
 if __name__ == "__main__":
     main()
