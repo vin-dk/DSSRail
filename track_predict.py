@@ -46,7 +46,7 @@ def take_in(file_path):
     results["degradation_rate_stddev"] = np.std(degradation_rates)
 
     ## 3. Defect Probability Coefficients
-    AL, IL, IAL = 1.0, 1.5, 2.0 #  real lim: 1.5, 2.0, 3.0
+    AL, IL, IAL = 1.5, 2.0, 3.0 #  real lim: 1.5, 2.0, 3.0
     data["Defect Level"] = np.select(
         [data["DLL_s Measurement"] <= AL, 
          (data["DLL_s Measurement"] > AL) & (data["DLL_s Measurement"] <= IL),
@@ -212,7 +212,7 @@ def compute(current_DLL_s, degradation_rate_mean, degradation_rate_stddev, delta
 def sim(file_path, interval_months, time_length_months):
     """
     Simulates the degradation and recovery process for the specified time length
-    with a given interval.
+    with a given interval, including cost tracking.
 
     Parameters:
     - file_path: str, path to the input Excel file.
@@ -222,6 +222,12 @@ def sim(file_path, interval_months, time_length_months):
     Returns:
     - mass_data: list, containing data for all runs and intervals.
     """
+    # Cost parameters (in USD, converted from SEK based on the paper)
+    inspection_cost = 24  # per interval
+    preventive_maintenance_cost = 720  # PM (scheduled tamping)
+    corrective_maintenance_complete_cost = 1080  # CM (emergency complete tamping)
+    corrective_maintenance_partial_cost = 540  # CM (emergency partial tamping)
+
     total_intervals = time_length_months // interval_months
     delta_t_days = interval_months * 30 
 
@@ -241,8 +247,18 @@ def sim(file_path, interval_months, time_length_months):
     recovery_values = []
     probabilities = {"P1": [], "P2": [], "P3": []}
 
+    # Cost tracking variables
+    cumulative_cost = 0
+    inspection_total_cost = 0
+    pm_total_cost = 0
+    cm_total_cost = 0
+
     for interval in range(total_intervals):
         print(f"Run {interval + 1}")
+
+        # Inspection cost for this interval
+        interval_inspection_cost = inspection_cost
+        inspection_total_cost += interval_inspection_cost
 
         step_results = compute(
             current_DLL_s,
@@ -263,8 +279,31 @@ def sim(file_path, interval_months, time_length_months):
             "tamping_status": step_results["tamping_status"],
         }
 
-        mass_data.append(interval_data)
+        # Add tamping costs based on the tamping status
+        interval_pm_cost = 0
+        interval_cm_cost = 0
+        if step_results["tamping_status"] == "complete":
+            interval_pm_cost = preventive_maintenance_cost
+            pm_total_cost += interval_pm_cost
+        elif step_results["tamping_status"] == "partial":
+            interval_cm_cost = corrective_maintenance_partial_cost
+            cm_total_cost += interval_cm_cost
+        elif step_results["tamping_status"] == "emergency_complete":
+            interval_cm_cost = corrective_maintenance_complete_cost
+            cm_total_cost += interval_cm_cost
 
+        interval_total_cost = interval_inspection_cost + interval_pm_cost + interval_cm_cost
+        cumulative_cost += interval_total_cost
+
+        interval_data.update({
+            "inspection_cost": interval_inspection_cost,
+            "pm_cost": interval_pm_cost,
+            "cm_cost": interval_cm_cost,
+            "total_cost": interval_total_cost,
+            "cumulative_cost": cumulative_cost,
+        })
+
+        mass_data.append(interval_data)
         current_DLL_s = step_results["updated_DLL_s"]
 
         degradation_values.append(step_results["degradation_val"])
@@ -299,6 +338,13 @@ def sim(file_path, interval_months, time_length_months):
     print(f"Average P1: {round(avg_probabilities['P1'], 2)}")
     print(f"Average P2: {round(avg_probabilities['P2'], 2)}")
     print(f"Average P3: {round(avg_probabilities['P3'], 2)}")
+
+    # Print cost summary
+    print("\nSession Cost Data:")
+    print(f"Total inspection cost: ${inspection_total_cost:.2f}")
+    print(f"Total preventive maintenance cost: ${pm_total_cost:.2f}")
+    print(f"Total corrective maintenance cost: ${cm_total_cost:.2f}")
+    print(f"Cumulative total cost: ${cumulative_cost:.2f}")
 
     return mass_data
 
@@ -389,19 +435,28 @@ def compute_alt(current_DLL_s, degradation_rate_mean, degradation_rate_stddev, d
     tamping_status = None
     recovery_adjustment = 0
     updated_DLL_s = next_DLL_s_before_recovery
+    failure = defect_probs['P2'] > 0.75
     critical_failure = defect_probs['P3'] > 0.05  # High probability of critical defect
 
     # Scheduled Preventive Maintenance (PM)
-    if current_month % schedule_months == 0:
+    if current_month % schedule_months == 0 and next_DLL_s_before_recovery > AL:
         tamping_status = "complete"  # PM happens at the scheduled interval
         updated_DLL_s = recovery_alt(next_DLL_s_before_recovery, recovery_coefficients, tamping_type=1)
         recovery_adjustment = next_DLL_s_before_recovery - updated_DLL_s
+        
+    
+     # Emergency CM
+    if next_DLL_s_before_recovery > IAL or critical_failure:
+        tamping_status = "complete (emergency)"
+        updated_DLL_s = recovery_alt(next_DLL_s_before_recovery, recovery_coefficients, tamping_type=1, critical=True)
+        recovery_adjustment = next_DLL_s_before_recovery - updated_DLL_s   
 
     # Corrective Maintenance (CM)
-    elif next_DLL_s_before_recovery > IL or critical_failure:
+    elif next_DLL_s_before_recovery > IL or failure:
         tamping_status = "partial"  # CM for critical failures
         updated_DLL_s = recovery_alt(next_DLL_s_before_recovery, recovery_coefficients, tamping_type=0, critical=True)
         recovery_adjustment = next_DLL_s_before_recovery - updated_DLL_s
+        
 
     # Return results for the simulation step
     return {
@@ -416,7 +471,7 @@ def compute_alt(current_DLL_s, degradation_rate_mean, degradation_rate_stddev, d
 def sim_alt(file_path, interval_months, time_length_months, schedule_months):
     """
     Simulates the degradation and recovery process with scheduled preventive maintenance
-    and critical corrective maintenance.
+    and critical corrective maintenance, including cost tracking.
 
     Parameters:
     - file_path: str, path to the input Excel file.
@@ -427,6 +482,12 @@ def sim_alt(file_path, interval_months, time_length_months, schedule_months):
     Returns:
     - mass_data: list, containing data for all runs and intervals.
     """
+    # Cost parameters (in USD, converted from SEK based on the paper)
+    inspection_cost = 24  # per interval
+    preventive_maintenance_cost = 453  # PM (scheduled tamping)
+    corrective_maintenance_partial_cost = 1000  # CM (partial)
+    corrective_maintenance_complete_cost = 3600  # CM (emergency complete)
+
     total_intervals = time_length_months // interval_months
     delta_t_days = interval_months * 30
 
@@ -438,7 +499,21 @@ def sim_alt(file_path, interval_months, time_length_months, schedule_months):
     recovery_coefficients = input_data["recovery_coefficients"]
     defect_coefficients = input_data["defect_coefficients"]
 
-    tamping_counts = {"none": 0, "partial": 0, "complete": 0}
+    # Cost tracking variables
+    cumulative_cost = 0
+    inspection_total_cost = 0
+    pm_total_cost = 0
+    cm_partial_total_cost = 0
+    cm_emergency_total_cost = 0
+
+    # Tamping counts
+    tamping_counts = {
+        "none": 0,
+        "partial": 0,
+        "complete": 0,
+        "complete_emergency": 0
+    }
+
     degradation_values = []
     recovery_values = []
     probabilities = {"P1": [], "P2": [], "P3": []}
@@ -446,6 +521,10 @@ def sim_alt(file_path, interval_months, time_length_months, schedule_months):
     for interval in range(total_intervals):
         current_month = interval * interval_months
         print(f"Run {interval + 1}")
+
+        # Inspection cost for this interval
+        interval_inspection_cost = inspection_cost
+        inspection_total_cost += interval_inspection_cost
 
         # Use the alternative compute logic
         step_results = compute_alt(
@@ -468,6 +547,42 @@ def sim_alt(file_path, interval_months, time_length_months, schedule_months):
             "defect_probabilities": step_results["defect_probabilities"],
             "tamping_status": step_results["tamping_status"],
         }
+
+        # Add tamping costs based on the tamping status
+        interval_pm_cost = 0
+        interval_cm_partial_cost = 0
+        interval_cm_emergency_cost = 0
+
+        if step_results["tamping_status"] == "complete":
+            interval_pm_cost = preventive_maintenance_cost
+            pm_total_cost += interval_pm_cost
+            tamping_counts["complete"] += 1
+        elif step_results["tamping_status"] == "partial":
+            interval_cm_partial_cost = corrective_maintenance_partial_cost
+            cm_partial_total_cost += interval_cm_partial_cost
+            tamping_counts["partial"] += 1
+        elif step_results["tamping_status"] == "complete (emergency)":
+            interval_cm_emergency_cost = corrective_maintenance_complete_cost
+            cm_emergency_total_cost += interval_cm_emergency_cost
+            tamping_counts["complete_emergency"] += 1
+
+        interval_total_cost = (
+            interval_inspection_cost
+            + interval_pm_cost
+            + interval_cm_partial_cost
+            + interval_cm_emergency_cost
+        )
+        cumulative_cost += interval_total_cost
+
+        interval_data.update({
+            "inspection_cost": interval_inspection_cost,
+            "pm_cost": interval_pm_cost,
+            "cm_partial_cost": interval_cm_partial_cost,
+            "cm_emergency_cost": interval_cm_emergency_cost,
+            "total_cost": interval_total_cost,
+            "cumulative_cost": cumulative_cost,
+        })
+
         mass_data.append(interval_data)
         current_DLL_s = step_results["updated_DLL_s"]
 
@@ -480,8 +595,6 @@ def sim_alt(file_path, interval_months, time_length_months, schedule_months):
 
         if step_results["tamping_status"] is None:
             tamping_counts["none"] += 1
-        else:
-            tamping_counts[step_results["tamping_status"]] += 1
 
         for key, value in interval_data.items():
             print(f"{key}: {value}")
@@ -501,6 +614,16 @@ def sim_alt(file_path, interval_months, time_length_months, schedule_months):
     print(f"Average P3: {round(avg_probabilities['P3'], 2)}")
     print(f"Tamping counts: {tamping_counts}")
 
+    # Print cost summary
+    print("\nSession Cost Data:")
+    print(f"Total inspection cost: ${inspection_total_cost:.2f}")
+    print(f"Total preventive maintenance cost: ${pm_total_cost:.2f}")
+    print(f"Total partial CM cost: ${cm_partial_total_cost:.2f}")
+    print(f"Total emergency CM cost: ${cm_emergency_total_cost:.2f}")
+    print(f"Cumulative total cost: ${cumulative_cost:.2f}")
+
     return mass_data
 
 sim(r"C:\Users\13046\mock_track_data.xlsx", 1, 100)
+
+
