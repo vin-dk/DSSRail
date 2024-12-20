@@ -18,8 +18,16 @@ def take_in(file_path):
     most_recent_tamping = data[data["Tamping Performed"] == 1]
     if most_recent_tamping.empty:
         raise ValueError("No tamping data available to compute initial degradation.")
-    most_recent_tamping = most_recent_tamping.iloc[-1]
-    D0LL_s = most_recent_tamping["DLL_s Measurement"]
+    
+    most_recent_tamping_index = most_recent_tamping.index[-1]
+    
+    # Check if there is a row after the most recent tamping
+    if most_recent_tamping_index + 1 < len(data):
+        D0LL_s = data.loc[most_recent_tamping_index + 1, "DLL_s Measurement"]
+    else:
+        # If no row is available after the most recent tamping, use the tamping row itself
+        D0LL_s = data.loc[most_recent_tamping_index, "DLL_s Measurement"]
+    
     results["D0LL_s"] = D0LL_s
 
     ## 2. Degradation Rates
@@ -95,42 +103,294 @@ def take_in(file_path):
     return results
 
 
-def degrade(current_DLL_s, degradation_rate_mean, degradation_rate_stddev, delta_t):
+def degrade(current_DLL_s, degradation_rate_mean, degradation_rate_stddev):
     """
     Models the degradation progression over a given time interval.
     """
-    b_s = np.random.normal(degradation_rate_mean, degradation_rate_stddev)
+    b_s = np.random.lognormal(mean=np.log(degradation_rate_mean), sigma=degradation_rate_stddev)
     
     epsilon_s = np.random.normal(0, degradation_rate_stddev)  
     
-    next_DLL_s = current_DLL_s + b_s * delta_t + epsilon_s
+    next_DLL_s = current_DLL_s + b_s + epsilon_s
     
     return max(0, next_DLL_s)  
 
 def defect(current_DLL_s, defect_coefficients):
     """
-    Calculates defect probabilities for the current degradation state using a softmax approach.
+    Calculates defect probabilities using ordinal logistic regression.
     """
     C_0 = defect_coefficients["C_0"]
     C_1 = defect_coefficients["C_1"]
     b = defect_coefficients["b"]
+    
+    # Calculate cumulative probabilities
+    P_leq_1 = np.exp(C_0 + b * current_DLL_s) / (1 + np.exp(C_0 + b * current_DLL_s))
+    P_leq_2 = np.exp(C_1 + b * current_DLL_s) / (1 + np.exp(C_1 + b * current_DLL_s))
+    
+    # Convert to individual probabilities
+    P1 = P_leq_1
+    P2 = P_leq_2 - P_leq_1
+    P3 = 1 - P_leq_2
+    
+    return {"P1": P1, "P2": P2, "P3": P3}
 
-    logits = np.array([
-        C_0 + b * current_DLL_s,  
-        C_1 + b * current_DLL_s,
-        0                        
-    ])
 
-    exp_logits = np.exp(logits - np.max(logits))  
-    probabilities = exp_logits / np.sum(exp_logits)
+def recovery_alt(current_DLL_s, recovery_coefficients, tamping_type, critical=False):
+    """
+    Alternative recovery logic that mirrors the behavior described in the paper.
+    If corrective maintenance (CM) is critical, the recovery has a stronger effect.
+    """
+    alpha_1 = recovery_coefficients["alpha_1"]
+    beta_1 = recovery_coefficients["beta_1"]
+    beta_2 = recovery_coefficients["beta_2"]
+    beta_3 = recovery_coefficients["beta_3"]
 
-    probabilities_dict = {
-        "P1": probabilities[0],
-        "P2": probabilities[1],
-        "P3": probabilities[2],
+    noise_stddev = np.sqrt(0.15)
+    epsilon_LL = np.random.normal(0, noise_stddev)
+
+    # Introduce stronger recovery adjustment if critical CM occurs
+    R_LL_s = (
+        alpha_1 +
+        beta_1 * current_DLL_s +
+        beta_2 * tamping_type +
+        beta_3 * tamping_type * current_DLL_s +
+        epsilon_LL
+    )
+    
+    if critical:
+        R_LL_s *= 1.5  # Boost recovery effect for critical maintenance
+
+    updated_DLL_s = max(0, current_DLL_s - R_LL_s)
+    return updated_DLL_s
+
+def compute_alt(current_DLL_s, degradation_rate_mean, degradation_rate_stddev, delta_t, 
+                defect_coefficients, recovery_coefficients, schedule_months, 
+                current_month, AL=1.0, IL=1.5):
+    """
+    Alternative compute method implementing PM at regular intervals and CM only for critical defect probabilities.
+    """
+    AL = 1.5
+    IL = 2.0
+    IAL = 3.0
+    # Step 1: Degrade
+    next_DLL_s_before_recovery = degrade(current_DLL_s, degradation_rate_mean, degradation_rate_stddev)
+    degradation_val = next_DLL_s_before_recovery - current_DLL_s
+
+    # Step 2: Defect probabilities
+    defect_probs = defect(next_DLL_s_before_recovery, defect_coefficients)
+
+    # Determine if PM or CM is needed
+    tamping_status = None
+    recovery_adjustment = 0
+    updated_DLL_s = next_DLL_s_before_recovery
+    failure = defect_probs['P2'] > 0.75
+    critical_failure = defect_probs['P3'] > 0.05  # High probability of critical defect
+
+    # Scheduled Preventive Maintenance (PM)
+    if current_month % schedule_months == 0 and next_DLL_s_before_recovery > AL:
+        tamping_status = "complete"  # PM happens at the scheduled interval
+        updated_DLL_s = recovery_alt(next_DLL_s_before_recovery, recovery_coefficients, tamping_type=1)
+        recovery_adjustment = next_DLL_s_before_recovery - updated_DLL_s
+        
+    
+     # Emergency CM
+    if next_DLL_s_before_recovery > IAL or critical_failure:
+        tamping_status = "complete (emergency)"
+        updated_DLL_s = recovery_alt(next_DLL_s_before_recovery, recovery_coefficients, tamping_type=1, critical=True)
+        recovery_adjustment = next_DLL_s_before_recovery - updated_DLL_s   
+
+    # Corrective Maintenance (CM)
+    elif next_DLL_s_before_recovery > IL or failure:
+        tamping_status = "partial"  # CM for critical failures
+        updated_DLL_s = recovery_alt(next_DLL_s_before_recovery, recovery_coefficients, tamping_type=0, critical=True)
+        recovery_adjustment = next_DLL_s_before_recovery - updated_DLL_s
+        
+
+    # Return results for the simulation step
+    return {
+        "current_DLL_s": current_DLL_s,
+        "degradation_val": degradation_val,
+        "recovery_adjustment": recovery_adjustment,
+        "updated_DLL_s": updated_DLL_s,
+        "defect_probabilities": defect_probs,
+        "tamping_status": tamping_status
     }
 
-    return probabilities_dict
+def sim_alt(file_path, interval_months, time_length_months, schedule_months):
+    """
+    Simulates the degradation and recovery process with scheduled preventive maintenance
+    and critical corrective maintenance, including cost tracking.
+
+    Parameters:
+    - file_path: str, path to the input Excel file.
+    - interval_months: int, the time interval in months between each step.
+    - time_length_months: int, total simulation time length in months.
+    - schedule_months: int, regular tamping schedule interval in months.
+
+    Returns:
+    - mass_data: list, containing data for all runs and intervals.
+    """
+    # Cost parameters (in USD, converted from SEK based on the paper)
+    inspection_cost = 24  # per interval
+    preventive_maintenance_cost = 453  # PM (scheduled tamping)
+    corrective_maintenance_partial_cost = 1000  # CM (partial)
+    corrective_maintenance_complete_cost = 3600  # CM (emergency complete)
+
+    total_intervals = time_length_months // interval_months
+    delta_t_days = interval_months * 30
+
+    mass_data = []
+    input_data = take_in(file_path)
+    current_DLL_s = input_data["D0LL_s"]
+    degradation_rate_mean = input_data["degradation_rate_mean"]
+    degradation_rate_stddev = input_data["degradation_rate_stddev"]
+    recovery_coefficients = input_data["recovery_coefficients"]
+    defect_coefficients = input_data["defect_coefficients"]
+
+    # Cost tracking variables
+    cumulative_cost = 0
+    inspection_total_cost = 0
+    pm_total_cost = 0
+    cm_partial_total_cost = 0
+    cm_emergency_total_cost = 0
+
+    # Tamping counts
+    tamping_counts = {
+        "none": 0,
+        "partial": 0,
+        "complete": 0,
+        "complete_emergency": 0
+    }
+
+    degradation_values = []
+    recovery_values = []
+    probabilities = {"P1": [], "P2": [], "P3": []}
+
+    for interval in range(total_intervals):
+        current_month = interval * interval_months
+        print(f"Run {interval + 1}")
+
+        # Inspection cost for this interval
+        interval_inspection_cost = inspection_cost
+        inspection_total_cost += interval_inspection_cost
+
+        # Use the alternative compute logic
+        step_results = compute_alt(
+            current_DLL_s,
+            degradation_rate_mean,
+            degradation_rate_stddev,
+            delta_t_days,
+            defect_coefficients,
+            recovery_coefficients,
+            schedule_months,
+            current_month
+        )
+
+        interval_data = {
+            "run": interval + 1,
+            "current_DLL_s": step_results["current_DLL_s"],
+            "degradation_val": step_results["degradation_val"],
+            "recovery_adjustment": step_results["recovery_adjustment"],
+            "updated_DLL_s": step_results["updated_DLL_s"],
+            "defect_probabilities": step_results["defect_probabilities"],
+            "tamping_status": step_results["tamping_status"],
+        }
+
+        # Add tamping costs based on the tamping status
+        interval_pm_cost = 0
+        interval_cm_partial_cost = 0
+        interval_cm_emergency_cost = 0
+
+        if step_results["tamping_status"] == "complete":
+            interval_pm_cost = preventive_maintenance_cost
+            pm_total_cost += interval_pm_cost
+            tamping_counts["complete"] += 1
+        elif step_results["tamping_status"] == "partial":
+            interval_cm_partial_cost = corrective_maintenance_partial_cost
+            cm_partial_total_cost += interval_cm_partial_cost
+            tamping_counts["partial"] += 1
+        elif step_results["tamping_status"] == "complete (emergency)":
+            interval_cm_emergency_cost = corrective_maintenance_complete_cost
+            cm_emergency_total_cost += interval_cm_emergency_cost
+            tamping_counts["complete_emergency"] += 1
+
+        interval_total_cost = (
+            interval_inspection_cost
+            + interval_pm_cost
+            + interval_cm_partial_cost
+            + interval_cm_emergency_cost
+        )
+        cumulative_cost += interval_total_cost
+
+        interval_data.update({
+            "inspection_cost": interval_inspection_cost,
+            "pm_cost": interval_pm_cost,
+            "cm_partial_cost": interval_cm_partial_cost,
+            "cm_emergency_cost": interval_cm_emergency_cost,
+            "total_cost": interval_total_cost,
+            "cumulative_cost": cumulative_cost,
+        })
+
+        mass_data.append(interval_data)
+        current_DLL_s = step_results["updated_DLL_s"]
+
+        # Update aggregated metrics
+        degradation_values.append(step_results["degradation_val"])
+        recovery_values.append(step_results["recovery_adjustment"])
+        probabilities["P1"].append(step_results["defect_probabilities"]["P1"])
+        probabilities["P2"].append(step_results["defect_probabilities"]["P2"])
+        probabilities["P3"].append(step_results["defect_probabilities"]["P3"])
+
+        if step_results["tamping_status"] is None:
+            tamping_counts["none"] += 1
+
+        for key, value in interval_data.items():
+            print(f"{key}: {value}")
+        print("\n")
+
+    # Compute averages
+    avg_degradation = np.mean(degradation_values)
+    avg_recovery = np.mean(recovery_values)
+    avg_probabilities = {key: np.mean(values) for key, values in probabilities.items()}
+    
+    # Convert recovery_coefficients to normal numbers
+    recovery_coefficients_cleaned = {key: float(value) for key, value in recovery_coefficients.items()}
+    
+    # Convert defect_coefficients to normal numbers
+    defect_coefficients_cleaned = {key: float(value) for key, value in defect_coefficients.items()}
+    
+    # Print session data
+    print("\nSession Data:")
+    print(f"degradation_rate_mean: {round(degradation_rate_mean, 2)}")
+    print(f"degradation_rate_stddev: {round(degradation_rate_stddev, 2)}")
+    print("recovery_coefficients:", recovery_coefficients_cleaned)
+    print("defect_coefficients:", defect_coefficients_cleaned)    
+    print(f"Tamping counts: {tamping_counts}")
+    print(f"Average degradation: {round(avg_degradation, 2)}")
+    print(f"Average recovery value: {round(avg_recovery, 2)}")
+    print(f"Average P1: {round(avg_probabilities['P1'], 2)}")
+    print(f"Average P2: {round(avg_probabilities['P2'], 2)}")
+    print(f"Average P3: {round(avg_probabilities['P3'], 2)}")
+
+    # Print cost summary
+    print("\nSession Cost Data:")
+    print(f"Total inspection cost: ${inspection_total_cost:.2f}")
+    print(f"Total preventive maintenance cost: ${pm_total_cost:.2f}")
+    print(f"Total partial CM cost: ${cm_partial_total_cost:.2f}")
+    print(f"Total emergency CM cost: ${cm_emergency_total_cost:.2f}")
+    print(f"Cumulative total cost: ${cumulative_cost:.2f}")
+
+    return mass_data
+
+sim_alt(r"C:\Users\13046\mock_track_data.xlsx", 4, 1000, 6)
+
+# The below methods simulate ONLY that recovery happens, as necessary, with no regards to a particular tamping schedule. This is a simplistic outlook, and only applies tamping as necessary, as 
+# limits are exceeded.
+
+
+
+# The above version are alternate methods that consider a given timeschedule of regularly scheduled maintenence. In this case, we define when regularly scheduled preventative maintenence is performed
+# and attempt to perform corrections according to this schedule, UNLESS critical defect probability is high. 
 
 
 def recovery(current_DLL_s, recovery_coefficients, tamping_type):
@@ -381,249 +641,3 @@ def sim_track(directory_path, interval_months, time_length_months):
             continue
 
     return results
-
-# The above methods simulate ONLY that recovery happens, as necessary, with no regards to a particular tamping schedule. This is a simplistic outlook, and only applies tamping as necessary, as 
-# limits are exceeded.
-
-
-
-# The below version are alternate methods that consider a given timeschedule of regularly scheduled maintenence. In this case, we define when regularly scheduled preventative maintenence is performed
-# and attempt to perform corrections according to this schedule, UNLESS critical defect probability is high. 
-
-def recovery_alt(current_DLL_s, recovery_coefficients, tamping_type, critical=False):
-    """
-    Alternative recovery logic that mirrors the behavior described in the paper.
-    If corrective maintenance (CM) is critical, the recovery has a stronger effect.
-    """
-    alpha_1 = recovery_coefficients["alpha_1"]
-    beta_1 = recovery_coefficients["beta_1"]
-    beta_2 = recovery_coefficients["beta_2"]
-    beta_3 = recovery_coefficients["beta_3"]
-
-    noise_stddev = np.sqrt(0.15)
-    epsilon_LL = np.random.normal(0, noise_stddev)
-
-    # Introduce stronger recovery adjustment if critical CM occurs
-    R_LL_s = (
-        alpha_1 +
-        beta_1 * current_DLL_s +
-        beta_2 * tamping_type +
-        beta_3 * tamping_type * current_DLL_s +
-        epsilon_LL
-    )
-    
-    if critical:
-        R_LL_s *= 1.5  # Boost recovery effect for critical maintenance
-
-    updated_DLL_s = max(0, current_DLL_s - R_LL_s)
-    return updated_DLL_s
-
-def compute_alt(current_DLL_s, degradation_rate_mean, degradation_rate_stddev, delta_t, 
-                defect_coefficients, recovery_coefficients, schedule_months, 
-                current_month, AL=1.0, IL=1.5):
-    """
-    Alternative compute method implementing PM at regular intervals and CM only for critical defect probabilities.
-    """
-    # Step 1: Degrade
-    next_DLL_s_before_recovery = degrade(current_DLL_s, degradation_rate_mean, degradation_rate_stddev, delta_t)
-    degradation_val = next_DLL_s_before_recovery - current_DLL_s
-
-    # Step 2: Defect probabilities
-    defect_probs = defect(next_DLL_s_before_recovery, defect_coefficients)
-
-    # Determine if PM or CM is needed
-    tamping_status = None
-    recovery_adjustment = 0
-    updated_DLL_s = next_DLL_s_before_recovery
-    failure = defect_probs['P2'] > 0.75
-    critical_failure = defect_probs['P3'] > 0.05  # High probability of critical defect
-
-    # Scheduled Preventive Maintenance (PM)
-    if current_month % schedule_months == 0 and next_DLL_s_before_recovery > AL:
-        tamping_status = "complete"  # PM happens at the scheduled interval
-        updated_DLL_s = recovery_alt(next_DLL_s_before_recovery, recovery_coefficients, tamping_type=1)
-        recovery_adjustment = next_DLL_s_before_recovery - updated_DLL_s
-        
-    
-     # Emergency CM
-    if next_DLL_s_before_recovery > IAL or critical_failure:
-        tamping_status = "complete (emergency)"
-        updated_DLL_s = recovery_alt(next_DLL_s_before_recovery, recovery_coefficients, tamping_type=1, critical=True)
-        recovery_adjustment = next_DLL_s_before_recovery - updated_DLL_s   
-
-    # Corrective Maintenance (CM)
-    elif next_DLL_s_before_recovery > IL or failure:
-        tamping_status = "partial"  # CM for critical failures
-        updated_DLL_s = recovery_alt(next_DLL_s_before_recovery, recovery_coefficients, tamping_type=0, critical=True)
-        recovery_adjustment = next_DLL_s_before_recovery - updated_DLL_s
-        
-
-    # Return results for the simulation step
-    return {
-        "current_DLL_s": current_DLL_s,
-        "degradation_val": degradation_val,
-        "recovery_adjustment": recovery_adjustment,
-        "updated_DLL_s": updated_DLL_s,
-        "defect_probabilities": defect_probs,
-        "tamping_status": tamping_status
-    }
-
-def sim_alt(file_path, interval_months, time_length_months, schedule_months):
-    """
-    Simulates the degradation and recovery process with scheduled preventive maintenance
-    and critical corrective maintenance, including cost tracking.
-
-    Parameters:
-    - file_path: str, path to the input Excel file.
-    - interval_months: int, the time interval in months between each step.
-    - time_length_months: int, total simulation time length in months.
-    - schedule_months: int, regular tamping schedule interval in months.
-
-    Returns:
-    - mass_data: list, containing data for all runs and intervals.
-    """
-    # Cost parameters (in USD, converted from SEK based on the paper)
-    inspection_cost = 24  # per interval
-    preventive_maintenance_cost = 453  # PM (scheduled tamping)
-    corrective_maintenance_partial_cost = 1000  # CM (partial)
-    corrective_maintenance_complete_cost = 3600  # CM (emergency complete)
-
-    total_intervals = time_length_months // interval_months
-    delta_t_days = interval_months * 30
-
-    mass_data = []
-    input_data = take_in(file_path)
-    current_DLL_s = input_data["D0LL_s"]
-    degradation_rate_mean = input_data["degradation_rate_mean"]
-    degradation_rate_stddev = input_data["degradation_rate_stddev"]
-    recovery_coefficients = input_data["recovery_coefficients"]
-    defect_coefficients = input_data["defect_coefficients"]
-
-    # Cost tracking variables
-    cumulative_cost = 0
-    inspection_total_cost = 0
-    pm_total_cost = 0
-    cm_partial_total_cost = 0
-    cm_emergency_total_cost = 0
-
-    # Tamping counts
-    tamping_counts = {
-        "none": 0,
-        "partial": 0,
-        "complete": 0,
-        "complete_emergency": 0
-    }
-
-    degradation_values = []
-    recovery_values = []
-    probabilities = {"P1": [], "P2": [], "P3": []}
-
-    for interval in range(total_intervals):
-        current_month = interval * interval_months
-        print(f"Run {interval + 1}")
-
-        # Inspection cost for this interval
-        interval_inspection_cost = inspection_cost
-        inspection_total_cost += interval_inspection_cost
-
-        # Use the alternative compute logic
-        step_results = compute_alt(
-            current_DLL_s,
-            degradation_rate_mean,
-            degradation_rate_stddev,
-            delta_t_days,
-            defect_coefficients,
-            recovery_coefficients,
-            schedule_months,
-            current_month
-        )
-
-        interval_data = {
-            "run": interval + 1,
-            "current_DLL_s": step_results["current_DLL_s"],
-            "degradation_val": step_results["degradation_val"],
-            "recovery_adjustment": step_results["recovery_adjustment"],
-            "updated_DLL_s": step_results["updated_DLL_s"],
-            "defect_probabilities": step_results["defect_probabilities"],
-            "tamping_status": step_results["tamping_status"],
-        }
-
-        # Add tamping costs based on the tamping status
-        interval_pm_cost = 0
-        interval_cm_partial_cost = 0
-        interval_cm_emergency_cost = 0
-
-        if step_results["tamping_status"] == "complete":
-            interval_pm_cost = preventive_maintenance_cost
-            pm_total_cost += interval_pm_cost
-            tamping_counts["complete"] += 1
-        elif step_results["tamping_status"] == "partial":
-            interval_cm_partial_cost = corrective_maintenance_partial_cost
-            cm_partial_total_cost += interval_cm_partial_cost
-            tamping_counts["partial"] += 1
-        elif step_results["tamping_status"] == "complete (emergency)":
-            interval_cm_emergency_cost = corrective_maintenance_complete_cost
-            cm_emergency_total_cost += interval_cm_emergency_cost
-            tamping_counts["complete_emergency"] += 1
-
-        interval_total_cost = (
-            interval_inspection_cost
-            + interval_pm_cost
-            + interval_cm_partial_cost
-            + interval_cm_emergency_cost
-        )
-        cumulative_cost += interval_total_cost
-
-        interval_data.update({
-            "inspection_cost": interval_inspection_cost,
-            "pm_cost": interval_pm_cost,
-            "cm_partial_cost": interval_cm_partial_cost,
-            "cm_emergency_cost": interval_cm_emergency_cost,
-            "total_cost": interval_total_cost,
-            "cumulative_cost": cumulative_cost,
-        })
-
-        mass_data.append(interval_data)
-        current_DLL_s = step_results["updated_DLL_s"]
-
-        # Update aggregated metrics
-        degradation_values.append(step_results["degradation_val"])
-        recovery_values.append(step_results["recovery_adjustment"])
-        probabilities["P1"].append(step_results["defect_probabilities"]["P1"])
-        probabilities["P2"].append(step_results["defect_probabilities"]["P2"])
-        probabilities["P3"].append(step_results["defect_probabilities"]["P3"])
-
-        if step_results["tamping_status"] is None:
-            tamping_counts["none"] += 1
-
-        for key, value in interval_data.items():
-            print(f"{key}: {value}")
-        print("\n")
-
-    # Compute averages
-    avg_degradation = np.mean(degradation_values)
-    avg_recovery = np.mean(recovery_values)
-    avg_probabilities = {key: np.mean(values) for key, values in probabilities.items()}
-
-    # Print session data
-    print("\nSession Data:")
-    print(f"Average degradation: {round(avg_degradation, 2)}")
-    print(f"Average recovery value: {round(avg_recovery, 2)}")
-    print(f"Average P1: {round(avg_probabilities['P1'], 2)}")
-    print(f"Average P2: {round(avg_probabilities['P2'], 2)}")
-    print(f"Average P3: {round(avg_probabilities['P3'], 2)}")
-    print(f"Tamping counts: {tamping_counts}")
-
-    # Print cost summary
-    print("\nSession Cost Data:")
-    print(f"Total inspection cost: ${inspection_total_cost:.2f}")
-    print(f"Total preventive maintenance cost: ${pm_total_cost:.2f}")
-    print(f"Total partial CM cost: ${cm_partial_total_cost:.2f}")
-    print(f"Total emergency CM cost: ${cm_emergency_total_cost:.2f}")
-    print(f"Cumulative total cost: ${cumulative_cost:.2f}")
-
-    return mass_data
-
-sim(r"C:\Users\13046\mock_track_data.xlsx", 1, 100)
-
-

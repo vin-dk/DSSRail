@@ -1,42 +1,75 @@
 import pandas as pd
 from datetime import datetime, timedelta
 import random
+import numpy as np
 
 def generate_dates(start_date, total_months):
     """Generate an array of dates, one month apart."""
     dates = [start_date + timedelta(days=30 * i) for i in range(total_months)]
     return dates
 
-def generate_dlls_and_tamping(dates, al=1.0, il=1.5, initial_dll=0.5):
-    """Generate DLLs, tamping flags, and tamping types according to implantation logic."""
+def generate_dlls_and_tamping(dates, al=1.5, il=2.0, ial=3.0, initial_dll=0.5):
+    """
+    Generate DLLs, tamping flags, and tamping types with realistic behavior.
+    """
     total_months = len(dates)
     dlls = []
     tamping_performed = []
     tamping_type = []
 
     current_dll = initial_dll
+
+    # Recovery and degradation parameters
+    recovery_noise_std = 0.15
+    degradation_rate_shape = 2.379  # Shape of gamma distribution for degradation
+    degradation_rate_scale = 0.756  # Scale of gamma distribution for degradation
+    catastrophic_failure_prob = 0.05  # 5% chance of catastrophic failure
+
     for i in range(total_months):
-        if i > 0 and i % 15 == 0:  
-            current_dll = random.uniform(il + 0.01, il + 0.5)  
-        elif i > 0 and i % 6 == 0:  
-            current_dll = random.uniform(al, il) 
+        # Record current DLL
+        if current_dll == 0:  # Replace 0 value with a random value between 0.1 and 0.5
+            current_dll = random.uniform(0.1, 0.5)
 
         dlls.append(current_dll)
 
-        if current_dll > il:  
+        # Determine if tamping is needed
+        if current_dll > ial:  # Critical defect (emergency CM)
             tamping_performed.append(1)
-            tamping_type.append(2)  
-            current_dll = random.uniform(al, il)  
-        elif current_dll > al:  
+            tamping_type.append(2)  # Complete tamping
+            recovery_noise = np.random.normal(0, np.sqrt(recovery_noise_std))
+            current_dll -= 0.269 + 0.51 * current_dll + 0.207 * 2 - 0.043 * 2 * current_dll + recovery_noise
+        elif il < current_dll <= ial:  # High defect probability (partial CM)
             tamping_performed.append(1)
-            tamping_type.append(1) 
-            current_dll = random.uniform(0.01, al)  
-        else:  # No Tamping
+            tamping_type.append(1)  # Partial tamping
+            recovery_noise = np.random.normal(0, np.sqrt(recovery_noise_std))
+            current_dll -= 0.269 + 0.51 * current_dll + 0.207 * 1 - 0.043 * 1 * current_dll + recovery_noise
+        elif al < current_dll <= il:  # Preventive maintenance (complete tamping)
+            tamping_performed.append(1)
+            tamping_type.append(2)  # Complete tamping
+            recovery_noise = np.random.normal(0, np.sqrt(recovery_noise_std))
+            current_dll -= 0.269 + 0.51 * current_dll + 0.207 * 2 - 0.043 * 2 * current_dll + recovery_noise
+        else:  # No tamping
             tamping_performed.append(0)
             tamping_type.append(0)
 
+        # Ensure DLL_s does not go negative
+        current_dll = max(current_dll, 0)
+
+        # Apply degradation if no tamping
         if tamping_performed[-1] == 0:
-            degradation_rate = random.uniform(0.03, 0.07)
+            # Base degradation rate
+            degradation_rate = np.random.gamma(degradation_rate_shape, degradation_rate_scale)
+
+            # Adjust degradation rate based on traffic patterns
+            if i % 12 < 6:  # Light traffic
+                degradation_rate *= 0.5
+            else:  # Heavy traffic
+                degradation_rate *= 1.5
+
+            # Introduce random catastrophic failures
+            if random.random() < catastrophic_failure_prob:
+                degradation_rate += random.uniform(0.5, 1.0)
+
             current_dll += degradation_rate
 
     return dlls, tamping_performed, tamping_type
@@ -52,50 +85,16 @@ def write_to_excel(dates, dlls, tamping_performed, tamping_type, file_path):
     df = pd.DataFrame(data)
     df.to_excel(file_path, index=False)
     print(f"Data successfully written to {file_path}")
-    
-
-def track_create(num_tracks, start_date=datetime(2002, 1, 1), total_months=100):
-    """
-    Generate mock track data for multiple sections of track and store them in a dedicated directory.
-    
-    Parameters:
-        num_tracks (int): Number of track sections (Excel files) to generate.
-        start_date (datetime): Start date for the simulation.
-        total_months (int): Duration in months for each track section.
-    """
-    home_dir = os.path.expanduser("~")
-    track_data_dir = os.path.join(home_dir, "track_data")
-
-    if not os.path.exists(track_data_dir):
-        os.makedirs(track_data_dir)
-        print(f"Directory created: {track_data_dir}")
-    else:
-        print(f"Directory already exists: {track_data_dir}")
-
-    for i in range(1, num_tracks + 1):
-        print(f"Generating data for Track Section {i}...")
-        dates = generate_dates(start_date, total_months)
-        dlls, tamping_performed, tamping_type = generate_dlls_and_tamping(dates)
-
-        file_name = f"mock_track_data_{i}.xlsx"
-        file_path = os.path.join(track_data_dir, file_name)
-
-        write_to_excel(dates, dlls, tamping_performed, tamping_type, file_path)
-
-    print(f"\nAll {num_tracks} track sections generated successfully in: {track_data_dir}")
 
 def main():
     start_date = datetime(2002, 1, 1)
-    total_months = 100
+    total_months = 200  # Extend the time range for more data
     output_file = "mock_track_data.xlsx"
 
     dates = generate_dates(start_date, total_months)
-
     dlls, tamping_performed, tamping_type = generate_dlls_and_tamping(dates)
 
     write_to_excel(dates, dlls, tamping_performed, tamping_type, output_file)
-    
-
 
 if __name__ == "__main__":
     main()
