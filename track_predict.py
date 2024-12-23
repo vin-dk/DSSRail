@@ -2,6 +2,7 @@ import pandas as pd
 from sklearn.linear_model import LogisticRegression, LinearRegression
 import numpy as np
 import os
+import matplotlib.pyplot as plt
 
 def take_in(file_path):
     data = pd.read_excel(file_path)
@@ -135,7 +136,7 @@ def defect(current_DLL_s, defect_coefficients):
     return {"P1": P1, "P2": P2, "P3": P3}
 
 
-def recovery_alt(current_DLL_s, recovery_coefficients, tamping_type, critical=False):
+def recovery_alt(current_DLL_s, recovery_coefficients, tamping_type):
     """
     Alternative recovery logic that mirrors the behavior described in the paper.
     If corrective maintenance (CM) is critical, the recovery has a stronger effect.
@@ -148,7 +149,6 @@ def recovery_alt(current_DLL_s, recovery_coefficients, tamping_type, critical=Fa
     noise_stddev = np.sqrt(0.15)
     epsilon_LL = np.random.normal(0, noise_stddev)
 
-    # Introduce stronger recovery adjustment if critical CM occurs
     R_LL_s = (
         alpha_1 +
         beta_1 * current_DLL_s +
@@ -156,11 +156,8 @@ def recovery_alt(current_DLL_s, recovery_coefficients, tamping_type, critical=Fa
         beta_3 * tamping_type * current_DLL_s +
         epsilon_LL
     )
-    
-    if critical:
-        R_LL_s *= 1.5  # Boost recovery effect for critical maintenance
 
-    updated_DLL_s = max(0, current_DLL_s - R_LL_s)
+    updated_DLL_s = max(0.1, current_DLL_s - R_LL_s)
     return updated_DLL_s
 
 def compute_alt(current_DLL_s, degradation_rate_mean, degradation_rate_stddev, delta_t, 
@@ -196,13 +193,13 @@ def compute_alt(current_DLL_s, degradation_rate_mean, degradation_rate_stddev, d
      # Emergency CM
     if next_DLL_s_before_recovery > IAL or critical_failure:
         tamping_status = "complete (emergency)"
-        updated_DLL_s = recovery_alt(next_DLL_s_before_recovery, recovery_coefficients, tamping_type=1, critical=True)
+        updated_DLL_s = recovery_alt(next_DLL_s_before_recovery, recovery_coefficients, tamping_type=1)
         recovery_adjustment = next_DLL_s_before_recovery - updated_DLL_s   
 
     # Corrective Maintenance (CM)
     elif next_DLL_s_before_recovery > IL or failure:
         tamping_status = "partial"  # CM for critical failures
-        updated_DLL_s = recovery_alt(next_DLL_s_before_recovery, recovery_coefficients, tamping_type=0, critical=True)
+        updated_DLL_s = recovery_alt(next_DLL_s_before_recovery, recovery_coefficients, tamping_type=0)
         recovery_adjustment = next_DLL_s_before_recovery - updated_DLL_s
         
 
@@ -382,7 +379,114 @@ def sim_alt(file_path, interval_months, time_length_months, schedule_months):
 
     return mass_data
 
-sim_alt(r"C:\Users\13046\mock_track_data.xlsx", 4, 1000, 6)
+def analyze_cost_vs_maintenance_limits(file_path, maintenance_limits, interval_months, time_length_months, schedule_months):
+    """
+    Analyze the effect of maintenance limits on total costs.
+
+    Parameters:
+        file_path (str): Path to the input data file.
+        maintenance_limits (list): List of maintenance limits to evaluate (AL, IL, IAL).
+        interval_months (int): Time interval in months for each step in the simulation.
+        time_length_months (int): Total simulation length in months.
+        schedule_months (int): Regular interval for scheduled maintenance in months.
+
+    Returns:
+        None
+    """
+    results = []
+
+    for AL, IL, IAL in maintenance_limits:
+        print(f"Analyzing maintenance limits AL={AL}, IL={IL}, IAL={IAL}...")
+        data = sim_alt(file_path, interval_months, time_length_months, schedule_months)
+        total_cost = sum(run["total_cost"] for run in data)
+        results.append((AL, IL, IAL, total_cost))
+
+    
+    for result in results:
+        print(f"AL={result[0]}, IL={result[1]}, IAL={result[2]} -> Total Cost: ${result[3]:,.2f}")
+
+    
+    maintenance_limits_str = [f"AL={AL}, IL={IL}, IAL={IAL}" for AL, IL, IAL in maintenance_limits]
+    total_costs = [result[3] for result in results]
+
+    plt.figure(figsize=(10, 6))
+    plt.bar(maintenance_limits_str, total_costs, color="skyblue")
+    plt.xlabel("Maintenance Limits")
+    plt.ylabel("Total Maintenance Cost (USD)")
+    plt.title("Cost vs. Maintenance Limits")
+    plt.xticks(rotation=45, ha="right")
+    plt.tight_layout()
+    plt.show()
+    
+
+def analyze_maintenance_action_frequencies(file_path, maintenance_limits, interval_months, time_length_months, schedule_months):
+    """
+    Analyze the frequency of maintenance actions (preventive, corrective, emergency) under different maintenance limits.
+
+    Parameters:
+        file_path (str): Path to the input data file.
+        maintenance_limits (list): List of maintenance limits to evaluate (AL, IL, IAL).
+        interval_months (int): Time interval in months for each step in the simulation.
+        time_length_months (int): Total simulation length in months.
+        schedule_months (int): Regular interval for scheduled maintenance in months.
+
+    Returns:
+        None
+    """
+    results = []
+
+    for AL, IL, IAL in maintenance_limits:
+        print(f"Analyzing maintenance limits AL={AL}, IL={IL}, IAL={IAL}...")
+        data = sim_alt(file_path, interval_months, time_length_months, schedule_months)
+        preventive = sum(run["tamping_status"] == "complete" for run in data)
+        corrective = sum(run["tamping_status"] == "partial" for run in data)
+        emergency = sum(run["tamping_status"] == "complete (emergency)" for run in data)
+        results.append((AL, IL, IAL, preventive, corrective, emergency))
+
+    
+    for result in results:
+        print(f"AL={result[0]}, IL={result[1]}, IAL={result[2]} -> "
+              f"Preventive: {result[3]}, Corrective: {result[4]}, Emergency: {result[5]}")
+
+    
+    maintenance_limits_str = [f"AL={AL}, IL={IL}, IAL={IAL}" for AL, IL, IAL in maintenance_limits]
+    preventive_actions = [result[3] for result in results]
+    corrective_actions = [result[4] for result in results]
+    emergency_actions = [result[5] for result in results]
+
+    x = np.arange(len(maintenance_limits_str))  
+    width = 0.2  
+
+    plt.figure(figsize=(12, 6))
+    plt.bar(x - width, preventive_actions, width, label="Preventive", color="green")
+    plt.bar(x, corrective_actions, width, label="Corrective", color="orange")
+    plt.bar(x + width, emergency_actions, width, label="Emergency", color="red")
+    plt.xlabel("Maintenance Limits")
+    plt.ylabel("Number of Maintenance Actions")
+    plt.title("Maintenance Action Frequencies")
+    plt.xticks(x, maintenance_limits_str, rotation=45, ha="right")
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+    
+
+file_path = r"C:\Users\13046\mock_track_data.xlsx"  
+
+
+maintenance_limits = [
+    # test cases for maintenance limit methods 
+    (1.5, 2.0, 3.0),  # 1: Standard limits
+    (1.2, 1.8, 2.8),  # 2: Tighter limits
+    (1.7, 2.2, 3.2),  # 3: Looser limits
+]
+
+
+analyze_cost_vs_maintenance_limits(file_path, maintenance_limits, interval_months=4, time_length_months=180, schedule_months=12)
+
+
+analyze_maintenance_action_frequencies(file_path, maintenance_limits, interval_months=4, time_length_months=180, schedule_months=12)
+
+sim_alt(file_path, 4, 1000, 6)
 
 # The below methods simulate ONLY that recovery happens, as necessary, with no regards to a particular tamping schedule. This is a simplistic outlook, and only applies tamping as necessary, as 
 # limits are exceeded.
