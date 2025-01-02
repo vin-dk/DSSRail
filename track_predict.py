@@ -3,6 +3,8 @@ from sklearn.linear_model import LogisticRegression, LinearRegression
 import numpy as np
 import os
 import matplotlib.pyplot as plt
+import statsmodels.api as sm
+from statsmodels.miscmodels.ordinal_model import OrderedModel
 
 def take_in(file_path):
     data = pd.read_excel(file_path)
@@ -104,7 +106,7 @@ def take_in(file_path):
     return results
 
 
-def degrade(current_DLL_s, degradation_rate_mean, degradation_rate_stddev):
+def degrade(current_DLL_s, degradation_rate_mean, degradation_rate_stddev, time):
     """
     Models the degradation progression over a given time interval.
     """
@@ -112,7 +114,7 @@ def degrade(current_DLL_s, degradation_rate_mean, degradation_rate_stddev):
     
     epsilon_s = np.random.normal(0, degradation_rate_stddev)  
     
-    next_DLL_s = current_DLL_s + b_s + epsilon_s
+    next_DLL_s = current_DLL_s + (b_s * time) + epsilon_s
     
     return max(0, next_DLL_s)  
 
@@ -131,7 +133,7 @@ def defect(current_DLL_s, defect_coefficients):
     # Convert to individual probabilities
     P1 = P_leq_1
     P2 = P_leq_2 - P_leq_1
-    P3 = 1 - P_leq_2
+    P3 = 1 - P1 - P2 
     
     return {"P1": P1, "P2": P2, "P3": P3}
 
@@ -157,20 +159,18 @@ def recovery_alt(current_DLL_s, recovery_coefficients, tamping_type):
         epsilon_LL
     )
 
-    updated_DLL_s = max(0.1, current_DLL_s - R_LL_s)
+    updated_DLL_s = current_DLL_s - R_LL_s
     return updated_DLL_s
 
 def compute_alt(current_DLL_s, degradation_rate_mean, degradation_rate_stddev, delta_t, 
                 defect_coefficients, recovery_coefficients, schedule_months, 
-                current_month, AL=1.0, IL=1.5):
-    """
-    Alternative compute method implementing PM at regular intervals and CM only for critical defect probabilities.
-    """
+                current_month, time, AL=1.0, IL=1.5):
     AL = 1.5
     IL = 2.0
     IAL = 3.0
-    # Step 1: Degrade
-    next_DLL_s_before_recovery = degrade(current_DLL_s, degradation_rate_mean, degradation_rate_stddev)
+
+    # Step 1: Degrade up to the observation point
+    next_DLL_s_before_recovery = degrade(current_DLL_s, degradation_rate_mean, degradation_rate_stddev, time)
     degradation_val = next_DLL_s_before_recovery - current_DLL_s
 
     # Step 2: Defect probabilities
@@ -183,25 +183,33 @@ def compute_alt(current_DLL_s, degradation_rate_mean, degradation_rate_stddev, d
     failure = defect_probs['P2'] > 0.75
     critical_failure = defect_probs['P3'] > 0.05  # High probability of critical defect
 
-    # Scheduled Preventive Maintenance (PM)
     if current_month % schedule_months == 0 and next_DLL_s_before_recovery > AL:
-        tamping_status = "complete"  # PM happens at the scheduled interval
-        updated_DLL_s = recovery_alt(next_DLL_s_before_recovery, recovery_coefficients, tamping_type=1)
-        recovery_adjustment = next_DLL_s_before_recovery - updated_DLL_s
-        
-    
-     # Emergency CM
-    if next_DLL_s_before_recovery > IAL or critical_failure:
-        tamping_status = "complete (emergency)"
-        updated_DLL_s = recovery_alt(next_DLL_s_before_recovery, recovery_coefficients, tamping_type=1)
-        recovery_adjustment = next_DLL_s_before_recovery - updated_DLL_s   
-
-    # Corrective Maintenance (CM)
+        tamping_status = "complete"
+    elif next_DLL_s_before_recovery > IAL or critical_failure:
+        tamping_status = "partial (emergency)"
     elif next_DLL_s_before_recovery > IL or failure:
-        tamping_status = "partial"  # CM for critical failures
-        updated_DLL_s = recovery_alt(next_DLL_s_before_recovery, recovery_coefficients, tamping_type=0)
-        recovery_adjustment = next_DLL_s_before_recovery - updated_DLL_s
-        
+        tamping_status = "partial"
+
+    if tamping_status is not None:
+        # Randomly select the day for tamping
+        tamping_day = np.random.randint(1, delta_t + 1)
+
+        # Simulate degradation up to the tamping day
+        degraded_before_tamping = degrade(current_DLL_s, degradation_rate_mean, degradation_rate_stddev, tamping_day)
+
+        # Perform tamping based on the observed DLL_s at the start of the interval
+        updated_DLL_s = recovery_alt(degraded_before_tamping, recovery_coefficients, tamping_type=1)
+
+        # Simulate degradation for the remaining days
+        remaining_days = delta_t - tamping_day
+        if remaining_days > 0:
+            updated_DLL_s = degrade(updated_DLL_s, degradation_rate_mean, degradation_rate_stddev, remaining_days)
+
+        # Adjust recovery adjustment
+        recovery_adjustment = degraded_before_tamping - updated_DLL_s
+        time = 1  # Reset time after tamping
+    else:
+        time += delta_t  # Accumulate time when no tamping is performed
 
     # Return results for the simulation step
     return {
@@ -210,8 +218,10 @@ def compute_alt(current_DLL_s, degradation_rate_mean, degradation_rate_stddev, d
         "recovery_adjustment": recovery_adjustment,
         "updated_DLL_s": updated_DLL_s,
         "defect_probabilities": defect_probs,
-        "tamping_status": tamping_status
+        "tamping_status": tamping_status,
+        "time": time  # Return updated time
     }
+
 
 def sim_alt(file_path, interval_months, time_length_months, schedule_months):
     """
@@ -244,6 +254,9 @@ def sim_alt(file_path, interval_months, time_length_months, schedule_months):
     recovery_coefficients = input_data["recovery_coefficients"]
     defect_coefficients = input_data["defect_coefficients"]
 
+    # Initialize time since last tamping
+    time = 1
+
     # Cost tracking variables
     cumulative_cost = 0
     inspection_total_cost = 0
@@ -256,7 +269,7 @@ def sim_alt(file_path, interval_months, time_length_months, schedule_months):
         "none": 0,
         "partial": 0,
         "complete": 0,
-        "complete_emergency": 0
+        "partial_emergency": 0
     }
 
     degradation_values = []
@@ -280,8 +293,11 @@ def sim_alt(file_path, interval_months, time_length_months, schedule_months):
             defect_coefficients,
             recovery_coefficients,
             schedule_months,
-            current_month
+            current_month,
+            time
         )
+
+        time = step_results["time"]  # Update time from the result
 
         interval_data = {
             "run": interval + 1,
@@ -306,10 +322,10 @@ def sim_alt(file_path, interval_months, time_length_months, schedule_months):
             interval_cm_partial_cost = corrective_maintenance_partial_cost
             cm_partial_total_cost += interval_cm_partial_cost
             tamping_counts["partial"] += 1
-        elif step_results["tamping_status"] == "complete (emergency)":
+        elif step_results["tamping_status"] == "partial (emergency)":
             interval_cm_emergency_cost = corrective_maintenance_complete_cost
             cm_emergency_total_cost += interval_cm_emergency_cost
-            tamping_counts["complete_emergency"] += 1
+            tamping_counts["partial_emergency"] += 1
 
         interval_total_cost = (
             interval_inspection_cost
@@ -349,19 +365,19 @@ def sim_alt(file_path, interval_months, time_length_months, schedule_months):
     avg_degradation = np.mean(degradation_values)
     avg_recovery = np.mean(recovery_values)
     avg_probabilities = {key: np.mean(values) for key, values in probabilities.items()}
-    
+
     # Convert recovery_coefficients to normal numbers
     recovery_coefficients_cleaned = {key: float(value) for key, value in recovery_coefficients.items()}
-    
+
     # Convert defect_coefficients to normal numbers
     defect_coefficients_cleaned = {key: float(value) for key, value in defect_coefficients.items()}
-    
+
     # Print session data
     print("\nSession Data:")
     print(f"degradation_rate_mean: {round(degradation_rate_mean, 2)}")
     print(f"degradation_rate_stddev: {round(degradation_rate_stddev, 2)}")
     print("recovery_coefficients:", recovery_coefficients_cleaned)
-    print("defect_coefficients:", defect_coefficients_cleaned)    
+    print("defect_coefficients:", defect_coefficients_cleaned)
     print(f"Tamping counts: {tamping_counts}")
     print(f"Average degradation: {round(avg_degradation, 2)}")
     print(f"Average recovery value: {round(avg_recovery, 2)}")
@@ -481,12 +497,12 @@ maintenance_limits = [
 ]
 
 
-analyze_cost_vs_maintenance_limits(file_path, maintenance_limits, interval_months=4, time_length_months=180, schedule_months=12)
+# analyze_cost_vs_maintenance_limits(file_path, maintenance_limits, interval_months=4, time_length_months=180, schedule_months=12)
 
 
-analyze_maintenance_action_frequencies(file_path, maintenance_limits, interval_months=4, time_length_months=180, schedule_months=12)
+# analyze_maintenance_action_frequencies(file_path, maintenance_limits, interval_months=4, time_length_months=180, schedule_months=12)
 
-sim_alt(file_path, 4, 1000, 6)
+sim_alt(file_path, 4, 100, 6)
 
 # The below methods simulate ONLY that recovery happens, as necessary, with no regards to a particular tamping schedule. This is a simplistic outlook, and only applies tamping as necessary, as 
 # limits are exceeded.
@@ -495,6 +511,8 @@ sim_alt(file_path, 4, 1000, 6)
 
 # The above version are alternate methods that consider a given timeschedule of regularly scheduled maintenence. In this case, we define when regularly scheduled preventative maintenence is performed
 # and attempt to perform corrections according to this schedule, UNLESS critical defect probability is high. 
+
+# note to self, mess around with ordinal probabilities
 
 
 def recovery(current_DLL_s, recovery_coefficients, tamping_type):
