@@ -2,6 +2,12 @@
 import numpy as np
 import pandas as pd
 from scipy.stats import anderson
+from statsmodels.miscmodels.ordinal_model import OrderedModel
+from sklearn.linear_model import LinearRegression
+
+"""
+THESE ARE THE PARAMETERS FOR A GOOD RUN
+"""
 
 # Constants and parameters
 D_0LLs = 0.352  # Initial degradation value after tamping (given in the paper)
@@ -50,10 +56,13 @@ response_time_stddev = 7  # Standard deviation for response time (1 week)
 # Derived constants
 time_step = 1  # Daily degradation update
 
+"""
+PARAMETERS END
+"""
 
 def take_in(file_path):
     """
-    Reads an Excel file and calculates constants and parameters related to degradation.
+    Reads an Excel file and calculates constants and parameters related to degradation and recovery.
 
     Parameters:
         file_path (str): Path to the Excel file containing track data.
@@ -92,6 +101,7 @@ def take_in(file_path):
 
     if result.significance_level[0] > 0.05:  # Assuming 5% significance level
         print("DLL_s values follow a lognormal distribution.")
+        
         μ = np.mean(log_dll_values)  # Mean of log-transformed values
         σ = np.std(log_dll_values)  # Stddev of log-transformed values
 
@@ -114,19 +124,204 @@ def take_in(file_path):
     print(f"Error Term Mean (e_s_mean): {e_s_mean}")
     print(f"Error Term Variance (e_s_variance): {e_s_variance}")
 
+    # Calculate Recovery Values
+    recovery_coefficients = {
+        "alpha_1": -0.269,
+        "beta_1": 0.51,
+        "beta_2": 0.207,
+        "beta_3": -0.043
+    }
+
+    # Map tamping types: 2 -> 1 (complete), 1 -> 0 (partial)
+    df["x_s"] = df["Tamping Type"].map({2: 1, 1: 0}).fillna(0)
+
+    recovery_values = []
+    for _, row in df.iterrows():
+        if row["Tamping Performed"] == 1:
+            DLL_s = row["DLL_s"]
+            x_s = row["x_s"]
+            epsilon_LL = np.random.normal(0, np.sqrt(0.15))
+
+            R_LL_s = (
+                recovery_coefficients["alpha_1"] +
+                recovery_coefficients["beta_1"] * DLL_s +
+                recovery_coefficients["beta_2"] * x_s +
+                recovery_coefficients["beta_3"] * x_s * DLL_s +
+                epsilon_LL
+            )
+            recovery_values.append(R_LL_s)
+        else:
+            recovery_values.append(None)
+
+    df["Recovery Value"] = recovery_values
+
+    # Print recovery values for debugging
+    print("Recovery values calculated:")
+    print(df[["Date", "DLL_s", "Tamping Performed", "Tamping Type", "Recovery Value"]])
+
     # Return calculated constants and parameters
     return {
         "D_0LLs": D_0LLs,
         "degradation_mean": degradation_mean,
         "degradation_stddev": degradation_stddev,
         "e_s_mean": e_s_mean,
-        "e_s_variance": e_s_variance
+        "e_s_variance": e_s_variance,
+        "recovery_values": df["Recovery Value"].tolist()
     }
 
-# Example usage
-result = take_in('mock_data_file.xlsx')
-print(result)
+def derive_recovery(file_path):
+    # NOTE, the inherent degradation, by nature of observation periods, are included in RLL_s calculation
+    # paper does not mention???
+    """
+    Derives recovery coefficients from the provided dataset using regression and validates residual normality.
 
+    Parameters:
+        file_path (str): Path to the Excel file containing track data.
+
+    Returns:
+        dict: Derived recovery coefficients {alpha_1, beta_1, beta_2, beta_3} and error term stats {mean, stddev}.
+    """
+    # Read Excel file
+    df = pd.read_excel(file_path)
+
+    # Ensure necessary columns exist
+    required_columns = ["Date", "DLL_s", "Tamping Performed", "Tamping Type"]
+    if not all(col in df.columns for col in required_columns):
+        raise ValueError(f"Input file must contain the following columns: {required_columns}")
+
+    # Filter tamping rows
+    tamping_events = df[df["Tamping Performed"] == 1]
+
+    # Ensure there are enough points
+    if len(tamping_events) < 4:
+        raise ValueError("Not enough tamping events to perform regression.")
+
+    # Calculate R_LL_s (difference before and after recovery)
+    R_LL_s = []
+    DLL_s_values = df["DLL_s"].values
+
+    for index in tamping_events.index:
+        if index + 1 < len(df):
+            R_LL_s.append(DLL_s_values[index] - DLL_s_values[index + 1])
+
+    tamping_events = tamping_events.iloc[:-1]  # Exclude last tamping event if no subsequent value exists
+
+    # Prepare regression input
+    X = tamping_events[["DLL_s", "Tamping Type"]].copy()
+    X["Tamping Type"] = X["Tamping Type"].map({1: 0, 2: 1})  # Map tamping type: 1 -> 0 (partial), 2 -> 1 (complete)
+    X["Interaction"] = X["DLL_s"] * X["Tamping Type"]  # Interaction term
+
+    # Convert to numpy arrays
+    X = X.values
+    Y = np.array(R_LL_s)
+
+    # Perform regression
+    model = LinearRegression()
+    model.fit(X, Y)
+
+    # Extract coefficients
+    alpha_1 = model.intercept_
+    beta_1, beta_2, beta_3 = model.coef_
+
+    print(f"Derived Recovery Coefficients:")
+    print(f"a1 (Intercept): {alpha_1}")
+    print(f"b1 (Coefficient for DLL_s): {beta_1}")
+    print(f"b2 (Coefficient for Tamping Type): {beta_2}")
+    print(f"b3 (Interaction Coefficient): {beta_3}")
+
+    # Calculate residuals
+    residuals = Y - model.predict(X)
+
+    # Test residuals for normality using Anderson-Darling test
+    ad_test_result = anderson(residuals, dist='norm')
+
+    if ad_test_result.significance_level[2] > 0.05:  # Check p-value (5% significance level)
+        print("Residuals follow a normal distribution.")
+        residual_mean = np.mean(residuals)
+        residual_stddev = np.std(residuals)
+        print(f"Error Term Mean (e_s_mean): {residual_mean}")
+        print(f"Error Term Stddev (e_s_stddev): {residual_stddev}")
+    else:
+        print("Residuals do NOT follow a normal distribution. Error term calculation is invalid.")
+        residual_mean = None
+        residual_stddev = None
+
+    return {
+        "alpha_1": alpha_1,
+        "beta_1": beta_1,
+        "beta_2": beta_2,
+        "beta_3": beta_3,
+        "e_s_mean": residual_mean,
+        "e_s_stddev": residual_stddev
+    }
+
+# Example 
+# coefficients = derive_recovery("mock_data_file.xlsx")
+# print(coefficients)
+
+
+def derive_defect_probabilities(file_path):
+    """
+    Derives parameters for predicting defect probabilities using ordinal logistic regression.
+
+    Parameters:
+        file_path (str): Path to the Excel file containing track data.
+
+    Returns:
+        dict: Coefficients {C0, C1, beta} and goodness-of-fit metrics.
+    """
+    # Load data
+    df = pd.read_excel(file_path)
+
+    # Ensure necessary columns exist
+    required_columns = ["DLL_s"]
+    if not all(col in df.columns for col in required_columns):
+        raise ValueError(f"Input file must contain the following columns: {required_columns}")
+
+    # Assign defect levels based on thresholds
+    def assign_defect_level(dll_s):
+        if dll_s < 1.5:
+            return 1  # No defect
+        elif dll_s < 3.0:
+            return 2  # Level A defect
+        else:
+            return 3  # Level B defect
+
+    df["Defect Level"] = df["DLL_s"].apply(assign_defect_level)
+
+    # Extract relevant data
+    X = df["DLL_s"].values
+    Y = df["Defect Level"].values  # 1: No defect, 2: Level A defect, 3: Level B defect
+
+    # Fit ordinal logistic regression
+    model = OrderedModel(Y, X, distr='logit')
+    results = model.fit()
+
+    # Extract coefficients
+    params = results.params
+    C0 = params[0]  # Intercept for transition from Level 1 to Level 2
+    C1 = params[1]  # Intercept for transition from Level 2 to Level 3
+    beta = params[2]  # Coefficient for DLL_s
+
+    # Goodness-of-fit
+    gof = results.prsquared  # McFadden's R-squared
+
+    print("Derived Defect Probability Parameters:")
+    print(f"C0 (Intercept for no defect): {C0}")
+    print(f"C1 (Intercept for level A defect): {C1}")
+    print(f"Beta (Coefficient for DLL_s): {beta}")
+    print(f"Goodness-of-fit: {gof}")
+
+    return {
+        "C0": C0,
+        "C1": C1,
+        "beta": beta,
+        "goodness_of_fit": gof
+    }
+
+# Example 
+# coefficients = derive_defect_probabilities("mock_data_file.xlsx")
+# print(coefficients)
 
 def degrade(current_DLL_s, b_s, time, e_s):
     """
@@ -148,9 +343,10 @@ def degrade(current_DLL_s, b_s, time, e_s):
     return next_DLL_s
     
 
-def recovery(current_DLL_s, recovery_coefficients, tamping_type):
+def recovery(current_DLL_s, recovery_coefficients, tamping_type, re_s_m, re_s_s):
     """
     Applies the recovery model to compute the updated DLL_s after tamping.
+    re_s_m and re_s_s are the deciders for the error term
 
     Returns:
         float: Updated DLL_s value after recovery.
@@ -160,8 +356,8 @@ def recovery(current_DLL_s, recovery_coefficients, tamping_type):
     beta_2 = recovery_coefficients["beta_2"]
     beta_3 = recovery_coefficients["beta_3"]
 
-    noise_stddev = np.sqrt(0.15)
-    epsilon_LL = np.random.normal(0, noise_stddev)
+    noise_stddev = np.sqrt(re_s_s)
+    epsilon_LL = np.random.normal(re_s_m, re_s_s)
 
     R_LL_s = (
         alpha_1 +
@@ -200,7 +396,7 @@ def defect(current_DLL_s, defect_coefficients):
 
 
 
-def sim_seg(time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, degradation_mean, degradation_stddev, e_s_variance, ILL, IALL, RM, RV):
+def sim_seg(time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, degradation_mean, degradation_stddev,e_s_mean, e_s_variance, re_s_m, re_s_s, ILL, IALL, RM, RV):
     """
     Simulates a single segment of the track up to the specified time horizon.
 
@@ -214,6 +410,9 @@ def sim_seg(time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, degradation_mean, 
         degradation_mean (float): Mean of the degradation rate (lognormal scale).
         degradation_stddev (float): Standard deviation of the degradation rate (lognormal scale).
         e_s_variance (float): Variance of the Gaussian noise term for degradation.
+        e_s_mean (float): mean of degradation error term (0.00 in test case)
+        re_s_m (float): mean of recovery residuals
+        re_s_v (float): standard dev of recovery residuals
         ILL (float): Limit for IL
         IALL (float): Limit for IALL
         RM (int): mean amount of days to perform tamping for IL defects
@@ -242,7 +441,7 @@ def sim_seg(time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, degradation_mean, 
         t += T_step
         print(f"Incremented time t: {t}")
 
-        e_s = np.random.normal(0, np.sqrt(e_s_variance))
+        e_s = np.random.normal(e_s_mean, np.sqrt(e_s_variance))
         print(f"Sampled error term e_s: {e_s}")
 
         # Formula from paper
@@ -255,7 +454,7 @@ def sim_seg(time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, degradation_mean, 
             print(f"Tamping interval reached at t = {t}")
             if DLL_s_t > AL:
                 print(f"DLL_s_t ({DLL_s_t}) > AL ({AL}), performing preventive maintenance")
-                D_0LLs = recovery(DLL_s_t, recovery_coefficients, 1)
+                D_0LLs = recovery(DLL_s_t, recovery_coefficients, 1,  re_s_m, re_s_s)
                 print(f"Updated D_0LLs after recovery: {D_0LLs}")
                 Npm += 1
                 tn = t
@@ -281,7 +480,7 @@ def sim_seg(time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, degradation_mean, 
 
             if PIAL > IALL:
                 print(f"PIAL ({PIAL}) > IALL ({IALL}), performing emergency corrective maintenance")
-                D_0LLs = recovery(DLL_s_t, recovery_coefficients, 0)
+                D_0LLs = recovery(DLL_s_t, recovery_coefficients, 0,  re_s_m, re_s_s)
                 print(f"Updated D_0LLs after emergency recovery: {D_0LLs}")
                 Ncm_e += 1
                 tn = t
@@ -305,7 +504,7 @@ def sim_seg(time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, degradation_mean, 
                 t = int(t)
                 DLL_s_t = degrade(DLL_s_t, b_s, response_time, e_s)
                 print(f"Updated DLL_s_t after degradation: {DLL_s_t}")
-                D_0LLs = recovery(DLL_s_t, recovery_coefficients, 0)
+                D_0LLs = recovery(DLL_s_t, recovery_coefficients, 0,  re_s_m, re_s_s)
                 print(f"Updated D_0LLs after normal recovery: {D_0LLs}")
                 Ncm_n += 1
                 tn = t
@@ -324,8 +523,8 @@ def sim_seg(time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, degradation_mean, 
 
 
 def monte(
-    time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, degradation_mean,
-    degradation_stddev, e_s_variance, ILL, IALL, RM, RV, num_simulations,
+    time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, degradation_mean, degradation_stddev,e_s_mean, e_s_variance,
+    re_s_m, re_s_s, ILL, IALL, RM, RV, num_simulations,
     inspection_cost, preventive_maintenance_cost, normal_corrective_maintenance_cost,
     emergency_corrective_maintenance_cost
 ):
@@ -351,9 +550,9 @@ def monte(
 
     for i in range(num_simulations):
         result = sim_seg(
-            time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, degradation_mean,
-            degradation_stddev, e_s_variance, ILL, IALL, RM, RV
-        )
+           time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, degradation_mean,
+           degradation_stddev,e_s_mean, e_s_variance, re_s_m, re_s_s, ILL, IALL, RM, RV
+       )
 
         # Get results from each sim
         inspections = result["Number of inspections"]
@@ -396,8 +595,66 @@ def monte(
         "Average Cost": avg_cost
     }
 
+def AL_analyze(
+    time_horizon, T_insp, T_tamp, T_step, D_0LLs, degradation_mean,
+    degradation_stddev, e_s_mean, e_s_variance, re_s_m, re_s_s, ILL, IALL, RM, RV,
+    num_simulations, inspection_cost, preventive_maintenance_cost,
+    normal_corrective_maintenance_cost, emergency_corrective_maintenance_cost,
+    min_AL, max_AL, inc_AL, output_file="AL_analysis.xlsx"
+):
+    """
+    Analyzes the performance of the Monte Carlo simulation over a range of AL values.
 
-# Sim parameters
+    Parameters:
+        Same as `monte()`, with additional parameters:
+        - min_AL (float): Starting value of AL.
+        - max_AL (float): Ending value of AL.
+        - inc_AL (float): Increment value for AL.
+        - output_file (str): Name of the Excel file to save the results.
+
+    Returns:
+        None: Saves the results to an Excel file.
+    """
+    results = []
+    trial_number = 1
+
+    # Iterate over AL values
+    current_AL = min_AL
+    while current_AL <= max_AL:
+        print(f"Running trial {trial_number} with AL = {current_AL:.2f}")
+
+        # Run the Monte Carlo simulation with the current AL value
+        result = monte(
+            time_horizon, T_insp, T_tamp, T_step, current_AL, D_0LLs,
+            degradation_mean, degradation_stddev, e_s_mean, e_s_variance,
+            re_s_m, re_s_s, ILL, IALL, RM, RV, num_simulations,
+            inspection_cost, preventive_maintenance_cost,
+            normal_corrective_maintenance_cost,
+            emergency_corrective_maintenance_cost
+        )
+
+        # Append results to the list
+        results.append({
+            "Trial Number": trial_number,
+            "AL": current_AL,
+            "Mean Normal CM Actions": result["Average Normal Corrective Maintenances"],
+            "Mean Emergency CM Actions": result["Average Emergency Corrective Maintenances"],
+            "Mean PM Actions": result["Average Preventive Maintenances"]
+        })
+
+        # Increment AL and trial number
+        current_AL += inc_AL
+        trial_number += 1
+
+    # Convert results to a DataFrame
+    df_results = pd.DataFrame(results)
+
+    # Save to Excel
+    df_results.to_excel(output_file, index=False)
+    print(f"AL analysis results saved to {output_file}")
+
+
+# Sim parameters (ideal)
 time_horizon = 5 * 365  
 T_insp = 32  
 T_tamp = 15  
@@ -408,52 +665,43 @@ IALL = 0.05
 RM = 35  
 RV = 7  
 degradation_mean = -2.379  
-degradation_stddev = 0.756  
-e_s_variance = 0.041  
+degradation_stddev = 0.756 
+e_s_mean = 0
+e_s_variance = 0.041 
+re_s_m = 0
+re_s_s = 0.15
 D_0LLs = 0.352  
 
+
 """
-SAMPLE RUN, ONE TRACK, 5 YEARS
+# SAMPLE RUN, ONE TRACK, 5 YEARS
+
 result = sim_seg(
-     time_horizon, 
-     T_insp, 
-     T_tamp, 
-     T_step, 
-     AL, 
-     D_0LLs, 
-     degradation_mean, 
-     degradation_stddev, 
-     e_s_variance, 
-     ILL, 
-     IALL, 
-     RM, 
-     RV
+     time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, degradation_mean,
+     degradation_stddev,e_s_mean, e_s_variance, re_s_m, re_s_s, ILL, IALL, RM, RV
  )
+print(result)
 """
 
 """
 # MONTE CARLO SIM, ONE TRACK, 5 YEARS
 num_simulations = 100  # Number of Monte Carlo simulations
 result = monte(
-    time_horizon=5 * 365,
-    T_insp=32,
-    T_tamp=15,
-    T_step=1,
-    AL=1.5,
-    D_0LLs=0.352,
-    degradation_mean=-2.379,
-    degradation_stddev=0.756,
-    e_s_variance=0.041,
-    ILL=0.4,
-    IALL=0.05,
-    RM=35,
-    RV=7,
+    time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, degradation_mean,
+    degradation_stddev,e_s_mean, e_s_variance, re_s_m, re_s_s, ILL, IALL, RM, RV,
     num_simulations=num_simulations,
     inspection_cost=240,
     preventive_maintenance_cost=5000,
     normal_corrective_maintenance_cost=11000,
     emergency_corrective_maintenance_cost=40000
 )
-
 print(result)
 """
+
+AL_analyze(
+    time_horizon, T_insp, T_tamp, T_step, D_0LLs, degradation_mean,
+    degradation_stddev, e_s_mean, e_s_variance, re_s_m, re_s_s, ILL, IALL, RM, RV,
+    num_simulations, inspection_cost, preventive_maintenance_cost,
+    normal_corrective_maintenance_cost, emergency_corrective_maintenance_cost,
+    min_AL = 1.2 , max_AL = 1.9 , inc_AL = 0.05, output_file="AL_analysis.xlsx"
+)
