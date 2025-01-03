@@ -1,6 +1,7 @@
 # Import necessary libraries
 import numpy as np
 import pandas as pd
+from scipy.stats import anderson
 
 # Constants and parameters
 D_0LLs = 0.352  # Initial degradation value after tamping (given in the paper)
@@ -48,6 +49,83 @@ response_time_stddev = 7  # Standard deviation for response time (1 week)
 
 # Derived constants
 time_step = 1  # Daily degradation update
+
+
+def take_in(file_path):
+    """
+    Reads an Excel file and calculates constants and parameters related to degradation.
+
+    Parameters:
+        file_path (str): Path to the Excel file containing track data.
+
+    Returns:
+        dict: Calculated constants and parameters.
+    """
+    # Load the Excel file
+    df = pd.read_excel(file_path)
+
+    # Ensure necessary columns exist
+    required_columns = ["Date", "DLL_s", "Tamping Performed", "Tamping Type"]
+    if not all(col in df.columns for col in required_columns):
+        raise ValueError(f"Input file must contain the following columns: {required_columns}")
+
+    # Sort by date to ensure chronological order
+    df = df.sort_values(by="Date")
+
+    # Determine D_0LLs
+    most_recent_tamping = df[df["Tamping Performed"] == 1].iloc[-1]
+    most_recent_index = most_recent_tamping.name
+    
+    if most_recent_index + 1 < len(df):
+        D_0LLs = df.iloc[most_recent_index + 1]["DLL_s"]
+    else:
+        D_0LLs = most_recent_tamping["DLL_s"]
+
+    print(f"D_0LLs (Initial degradation value after tamping): {D_0LLs}")
+
+    # Extract DLL_s values
+    dll_values = df["DLL_s"].values
+
+    # Test for lognormal distribution
+    log_dll_values = np.log(dll_values[dll_values > 0])  # Log-transform positive values only
+    result = anderson(log_dll_values, dist='norm')
+
+    if result.significance_level[0] > 0.05:  # Assuming 5% significance level
+        print("DLL_s values follow a lognormal distribution.")
+        μ = np.mean(log_dll_values)  # Mean of log-transformed values
+        σ = np.std(log_dll_values)  # Stddev of log-transformed values
+
+        # Convert back to lognormal scale
+        degradation_mean = np.exp(μ + 0.5 * σ**2)
+        degradation_stddev = np.sqrt((np.exp(σ**2) - 1) * np.exp(2 * μ + σ**2))
+    else:
+        print("DLL_s values do not follow a lognormal distribution. Assuming normal distribution.")
+        degradation_mean = np.mean(dll_values)
+        degradation_stddev = np.std(dll_values)
+
+    print(f"Degradation Mean: {degradation_mean}")
+    print(f"Degradation Stddev: {degradation_stddev}")
+
+    # Calculate error term variance
+    residuals = dll_values - (D_0LLs + degradation_mean)
+    e_s_variance = np.var(residuals)
+    e_s_mean = np.mean(residuals)  # Should be near zero
+
+    print(f"Error Term Mean (e_s_mean): {e_s_mean}")
+    print(f"Error Term Variance (e_s_variance): {e_s_variance}")
+
+    # Return calculated constants and parameters
+    return {
+        "D_0LLs": D_0LLs,
+        "degradation_mean": degradation_mean,
+        "degradation_stddev": degradation_stddev,
+        "e_s_mean": e_s_mean,
+        "e_s_variance": e_s_variance
+    }
+
+# Example usage
+result = take_in('mock_data_file.xlsx')
+print(result)
 
 
 def degrade(current_DLL_s, b_s, time, e_s):
@@ -277,13 +355,13 @@ def monte(
             degradation_stddev, e_s_variance, ILL, IALL, RM, RV
         )
 
-        # Extract results from the simulation
+        # Get results from each sim
         inspections = result["Number of inspections"]
         pm = result["Npm"]
         cm_n = result["Ncm_n"]
         cm_e = result["Ncm_e"]
 
-        # Calculate the cost for this simulation
+        # All costs
         cost = (
             inspections * inspection_cost +
             pm * preventive_maintenance_cost +
@@ -291,14 +369,14 @@ def monte(
             cm_e * emergency_corrective_maintenance_cost
         )
 
-        # Aggregate results
+        # aggregate
         total_inspections += inspections
         total_pm += pm
         total_cm_n += cm_n
         total_cm_e += cm_e
         total_cost += cost
 
-    # Calculate averages
+    # all averages
     avg_inspections = total_inspections / num_simulations
     avg_pm = total_pm / num_simulations
     avg_cm_n = total_cm_n / num_simulations
@@ -334,27 +412,28 @@ degradation_stddev = 0.756
 e_s_variance = 0.041  
 D_0LLs = 0.352  
 
-# SAMPLE RUN, ONE TRACK, 5 YEARS
-# result = sim_seg(
-    # time_horizon, 
-    # T_insp, 
-    # T_tamp, 
-    # T_step, 
-    # AL, 
-    # D_0LLs, 
-    # degradation_mean, 
-    # degradation_stddev, 
-    # e_s_variance, 
-    # ILL, 
-    # IALL, 
-    # RM, 
-    # RV
-# )
+"""
+SAMPLE RUN, ONE TRACK, 5 YEARS
+result = sim_seg(
+     time_horizon, 
+     T_insp, 
+     T_tamp, 
+     T_step, 
+     AL, 
+     D_0LLs, 
+     degradation_mean, 
+     degradation_stddev, 
+     e_s_variance, 
+     ILL, 
+     IALL, 
+     RM, 
+     RV
+ )
+"""
 
-
-
+"""
 # MONTE CARLO SIM, ONE TRACK, 5 YEARS
-num_simulations = 1000  # Number of Monte Carlo simulations
+num_simulations = 100  # Number of Monte Carlo simulations
 result = monte(
     time_horizon=5 * 365,
     T_insp=32,
@@ -377,3 +456,4 @@ result = monte(
 )
 
 print(result)
+"""
