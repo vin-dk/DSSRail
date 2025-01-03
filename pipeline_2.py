@@ -153,7 +153,7 @@ def sim_seg(time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, degradation_mean, 
         dict: Contains final state of simulation and maintenance counters.
     """
     # Initialization of variables
-    t = 0  # Start time
+    t = 1  # Start time
     tn = 0  # Last tamping time
     Npm = 0  # Preventive maintenance counter
     Ncm_n = 0  # Corrective maintenance (normal) counter
@@ -161,50 +161,74 @@ def sim_seg(time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, degradation_mean, 
 
     # Degradation model parameters
     b_s = np.random.lognormal(mean=degradation_mean, sigma=degradation_stddev)  # Sample degradation rate
+    print(f"Initial degradation rate b_s: {b_s}")
 
     while t <= time_horizon:
+        print(f"\n--- New Loop ---\nTime t: {t}, Last tamping time tn: {tn}")
+
         # Increment time
         t += T_step
+        print(f"Incremented time t: {t}")
 
         # Sample error term
         e_s = np.random.normal(0, np.sqrt(e_s_variance))
+        print(f"Sampled error term e_s: {e_s}")
 
         # Calculate DLL_s(t) using the formula
         DLL_s_t = D_0LLs + b_s * (t - tn) + e_s
+        print(f"Calculated DLL_s_t: {DLL_s_t}")
+        print (f"Original D0LL_s: {D_0LLs}")
 
         # Check if t is at tamping interval
-        if t == T_tamp:
+        if t % T_tamp == 0:
+            print(f"Tamping interval reached at t = {t}")
             if DLL_s_t > AL:
-                # Perform preventive maintenance
+                print(f"DLL_s_t ({DLL_s_t}) > AL ({AL}), performing preventive maintenance")
                 D_0LLs = recovery(DLL_s_t, recovery_coefficients, 1)
+                print(f"Updated D_0LLs after recovery: {D_0LLs}")
                 Npm += 1
                 tn = t
                 b_s = np.random.lognormal(mean=degradation_mean, sigma=degradation_stddev)
-            continue
+                print(f"Sampled new degradation rate b_s: {b_s}")
+            else:
+                print(f"DLL_s_t ({DLL_s_t}) <= AL ({AL}), no preventive maintenance needed")
+                
+            if t % T_insp == 0:
+                print(f"Tamping interval coincides with inspection interval at t = {t}")
+            else:    
+                continue
 
         # Check if t is at an inspection interval
         if t % T_insp == 0:
+            print(f"Inspection interval reached at t = {t}")
             probabilities = defect(DLL_s_t, defect_coefficients)
             PIL = probabilities["P2"]
             PIAL = probabilities["P3"]
+            print(f"Calculated defect probabilities: PIL = {PIL}, PIAL = {PIAL}")
 
             if PIAL > IALL:
-                # Perform emergency corrective maintenance
+                print(f"PIAL ({PIAL}) > IALL ({IALL}), performing emergency corrective maintenance")
                 D_0LLs = recovery(DLL_s_t, recovery_coefficients, 0)
+                print(f"Updated D_0LLs after emergency recovery: {D_0LLs}")
                 Ncm_e += 1
                 tn = t
                 continue
 
-            if PIL > ILL:
+            elif PIL > ILL:
+                print(f"PIL ({PIL}) > ILL ({ILL}), performing normal corrective maintenance")
                 # Calculate remaining time until the next inspection
                 time_to_next_inspection = T_insp - (t % T_insp)
-                
+                print(f"Time to next inspection: {time_to_next_inspection}")
+
                 # Bound response time to the remaining time until the next inspection
                 response_time = min(max(0, np.random.normal(loc=RM, scale=RV)), time_to_next_inspection)
-                
+                print(f"Bounded response time: {response_time}")
+
                 t += response_time  # Increment time
                 DLL_s_t = degrade(DLL_s_t, b_s, response_time, e_s)
+                print(f"Updated DLL_s_t after degradation: {DLL_s_t}")
                 D_0LLs = recovery(DLL_s_t, recovery_coefficients, 0)
+                print(f"Updated D_0LLs after normal recovery: {D_0LLs}")
                 Ncm_n += 1
                 tn = t
                 continue
@@ -217,3 +241,39 @@ def sim_seg(time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, degradation_mean, 
         "Ncm_n": Ncm_n,
         "Ncm_e": Ncm_e
     }
+
+
+# Simulation parameters
+time_horizon = 5 * 365  # 5 years converted to days
+T_insp = 32  # Inspection interval in days
+T_tamp = 15  # Tamping interval in days
+T_step = 1  # Daily time steps
+AL = 1.5  # Alert limit
+ILL = 0.75 # IL limit
+IALL = 0.05  # IAL limit
+RM = 35  # Mean response time for corrective maintenance
+RV = 7  # Variance for response time
+degradation_mean = -2.379  # Log mean of degradation rate
+degradation_stddev = 0.756  # Log standard deviation of degradation rate
+e_s_variance = 0.041  # Variance of error term
+D_0LLs = 0.352  # Initial DLL_s value after tamping
+
+# Call the sim_seg function
+result = sim_seg(
+    time_horizon, 
+    T_insp, 
+    T_tamp, 
+    T_step, 
+    AL, 
+    D_0LLs, 
+    degradation_mean, 
+    degradation_stddev, 
+    e_s_variance, 
+    ILL, 
+    IALL, 
+    RM, 
+    RV
+)
+
+# Print the result
+print(result)
