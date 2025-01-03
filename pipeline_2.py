@@ -66,7 +66,6 @@ def degrade(current_DLL_s, b_s, time, e_s):
         float: Updated DLL_s value after degradation.
     """
     
-    # Apply degradation
     next_DLL_s = current_DLL_s + (b_s * time) + e_s
     return next_DLL_s
     
@@ -78,17 +77,14 @@ def recovery(current_DLL_s, recovery_coefficients, tamping_type):
     Returns:
         float: Updated DLL_s value after recovery.
     """
-    # Extract coefficients
     alpha_1 = recovery_coefficients["alpha_1"]
     beta_1 = recovery_coefficients["beta_1"]
     beta_2 = recovery_coefficients["beta_2"]
     beta_3 = recovery_coefficients["beta_3"]
 
-    # Add noise to the recovery process
     noise_stddev = np.sqrt(0.15)
     epsilon_LL = np.random.normal(0, noise_stddev)
 
-    # Compute recovery value
     R_LL_s = (
         alpha_1 +
         beta_1 * current_DLL_s +
@@ -97,9 +93,8 @@ def recovery(current_DLL_s, recovery_coefficients, tamping_type):
         epsilon_LL
     )
     
-    # Apply recovery to current DLL_s
     updated_DLL_s = current_DLL_s - R_LL_s
-    return updated_DLL_s  # Add return statement
+    return updated_DLL_s  
 
 def defect(current_DLL_s, defect_coefficients):
     """
@@ -112,16 +107,13 @@ def defect(current_DLL_s, defect_coefficients):
     Returns:
         dict: Probabilities for defect levels (P1, P2, P3).
     """
-    # Extract coefficients
     C_0 = defect_coefficients["C_0"]
     C_1 = defect_coefficients["C_1"]
     b = defect_coefficients["b"]
     
-    # Calculate cumulative probabilities
     P_leq_1 = np.exp(C_0 + b * current_DLL_s) / (1 + np.exp(C_0 + b * current_DLL_s))
     P_leq_2 = np.exp(C_1 + b * current_DLL_s) / (1 + np.exp(C_1 + b * current_DLL_s))
     
-    # Convert to individual probabilities
     P1 = P_leq_1
     P2 = P_leq_2 - P_leq_1
     P3 = 1 - P1 - P2
@@ -152,29 +144,30 @@ def sim_seg(time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, degradation_mean, 
     Returns:
         dict: Contains final state of simulation and maintenance counters.
     """
-    # Initialization of variables
+    # Var init
     t = 1  # Start time
     tn = 0  # Last tamping time
     Npm = 0  # Preventive maintenance counter
     Ncm_n = 0  # Corrective maintenance (normal) counter
     Ncm_e = 0  # Corrective maintenance (emergency) counter
+    Ninsp = 0  # Inspection counter
+    total_response_delay = 0 # total response delay accrued
 
-    # Degradation model parameters
+    # b_s sampling
     b_s = np.random.lognormal(mean=degradation_mean, sigma=degradation_stddev)  # Sample degradation rate
     print(f"Initial degradation rate b_s: {b_s}")
 
     while t <= time_horizon:
         print(f"\n--- New Loop ---\nTime t: {t}, Last tamping time tn: {tn}")
 
-        # Increment time
+        # Increment
         t += T_step
         print(f"Incremented time t: {t}")
 
-        # Sample error term
         e_s = np.random.normal(0, np.sqrt(e_s_variance))
         print(f"Sampled error term e_s: {e_s}")
 
-        # Calculate DLL_s(t) using the formula
+        # Formula from paper
         DLL_s_t = D_0LLs + b_s * (t - tn) + e_s
         print(f"Calculated DLL_s_t: {DLL_s_t}")
         print (f"Original D0LL_s: {D_0LLs}")
@@ -192,7 +185,8 @@ def sim_seg(time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, degradation_mean, 
                 print(f"Sampled new degradation rate b_s: {b_s}")
             else:
                 print(f"DLL_s_t ({DLL_s_t}) <= AL ({AL}), no preventive maintenance needed")
-                
+            
+            # protects against case the both conditions satisfy
             if t % T_insp == 0:
                 print(f"Tamping interval coincides with inspection interval at t = {t}")
             else:    
@@ -200,6 +194,7 @@ def sim_seg(time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, degradation_mean, 
 
         # Check if t is at an inspection interval
         if t % T_insp == 0:
+            Ninsp += 1
             print(f"Inspection interval reached at t = {t}")
             probabilities = defect(DLL_s_t, defect_coefficients)
             PIL = probabilities["P2"]
@@ -216,15 +211,20 @@ def sim_seg(time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, degradation_mean, 
 
             elif PIL > ILL:
                 print(f"PIL ({PIL}) > ILL ({ILL}), performing normal corrective maintenance")
-                # Calculate remaining time until the next inspection
                 time_to_next_inspection = T_insp - (t % T_insp)
                 print(f"Time to next inspection: {time_to_next_inspection}")
 
-                # Bound response time to the remaining time until the next inspection
                 response_time = min(max(0, np.random.normal(loc=RM, scale=RV)), time_to_next_inspection)
                 print(f"Bounded response time: {response_time}")
+                
+                original_t = t
 
-                t += response_time  # Increment time
+                t += response_time 
+                response_time = int(response_time)
+                
+                total_response_delay += response_time
+                
+                t = int(t)
                 DLL_s_t = degrade(DLL_s_t, b_s, response_time, e_s)
                 print(f"Updated DLL_s_t after degradation: {DLL_s_t}")
                 D_0LLs = recovery(DLL_s_t, recovery_coefficients, 0)
@@ -239,41 +239,141 @@ def sim_seg(time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, degradation_mean, 
         "b_s": b_s,
         "Npm": Npm,
         "Ncm_n": Ncm_n,
-        "Ncm_e": Ncm_e
+        "Ncm_e": Ncm_e,
+        "Total Response Delay": total_response_delay,
+        "Number of inspections": Ninsp
     }
 
 
-# Simulation parameters
-time_horizon = 5 * 365  # 5 years converted to days
-T_insp = 32  # Inspection interval in days
-T_tamp = 15  # Tamping interval in days
-T_step = 1  # Daily time steps
-AL = 1.5  # Alert limit
-ILL = 0.75 # IL limit
-IALL = 0.05  # IAL limit
-RM = 35  # Mean response time for corrective maintenance
-RV = 7  # Variance for response time
-degradation_mean = -2.379  # Log mean of degradation rate
-degradation_stddev = 0.756  # Log standard deviation of degradation rate
-e_s_variance = 0.041  # Variance of error term
-D_0LLs = 0.352  # Initial DLL_s value after tamping
+def monte(
+    time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, degradation_mean,
+    degradation_stddev, e_s_variance, ILL, IALL, RM, RV, num_simulations,
+    inspection_cost, preventive_maintenance_cost, normal_corrective_maintenance_cost,
+    emergency_corrective_maintenance_cost
+):
+    """
+    Monte Carlo simulation to aggregate results for multiple track sections.
 
-# Call the sim_seg function
-result = sim_seg(
-    time_horizon, 
-    T_insp, 
-    T_tamp, 
-    T_step, 
-    AL, 
-    D_0LLs, 
-    degradation_mean, 
-    degradation_stddev, 
-    e_s_variance, 
-    ILL, 
-    IALL, 
-    RM, 
-    RV
+    Parameters:
+        Same as `sim_seg`, with additional parameters:
+        - num_simulations (int): Number of simulations to run.
+        - inspection_cost (float): Cost per inspection.
+        - preventive_maintenance_cost (float): Cost of preventive maintenance.
+        - normal_corrective_maintenance_cost (float): Cost of normal corrective maintenance.
+        - emergency_corrective_maintenance_cost (float): Cost of emergency corrective maintenance.
+
+    Returns:
+        dict: Aggregated results from all simulations.
+    """
+    total_inspections = 0
+    total_pm = 0
+    total_cm_n = 0
+    total_cm_e = 0
+    total_cost = 0
+
+    for i in range(num_simulations):
+        result = sim_seg(
+            time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, degradation_mean,
+            degradation_stddev, e_s_variance, ILL, IALL, RM, RV
+        )
+
+        # Extract results from the simulation
+        inspections = result["Number of inspections"]
+        pm = result["Npm"]
+        cm_n = result["Ncm_n"]
+        cm_e = result["Ncm_e"]
+
+        # Calculate the cost for this simulation
+        cost = (
+            inspections * inspection_cost +
+            pm * preventive_maintenance_cost +
+            cm_n * normal_corrective_maintenance_cost +
+            cm_e * emergency_corrective_maintenance_cost
+        )
+
+        # Aggregate results
+        total_inspections += inspections
+        total_pm += pm
+        total_cm_n += cm_n
+        total_cm_e += cm_e
+        total_cost += cost
+
+    # Calculate averages
+    avg_inspections = total_inspections / num_simulations
+    avg_pm = total_pm / num_simulations
+    avg_cm_n = total_cm_n / num_simulations
+    avg_cm_e = total_cm_e / num_simulations
+    avg_cost = total_cost / num_simulations
+
+    return {
+        "Total Inspections": total_inspections,
+        "Total Preventive Maintenances": total_pm,
+        "Total Normal Corrective Maintenances": total_cm_n,
+        "Total Emergency Corrective Maintenances": total_cm_e,
+        "Total Cost": total_cost,
+        "Average Inspections": avg_inspections,
+        "Average Preventive Maintenances": avg_pm,
+        "Average Normal Corrective Maintenances": avg_cm_n,
+        "Average Emergency Corrective Maintenances": avg_cm_e,
+        "Average Cost": avg_cost
+    }
+
+
+# Sim parameters
+time_horizon = 5 * 365  
+T_insp = 32  
+T_tamp = 15  
+T_step = 1  
+AL = 1.5  
+ILL = 0.4 
+IALL = 0.05  
+RM = 35  
+RV = 7  
+degradation_mean = -2.379  
+degradation_stddev = 0.756  
+e_s_variance = 0.041  
+D_0LLs = 0.352  
+
+# SAMPLE RUN, ONE TRACK, 5 YEARS
+# result = sim_seg(
+    # time_horizon, 
+    # T_insp, 
+    # T_tamp, 
+    # T_step, 
+    # AL, 
+    # D_0LLs, 
+    # degradation_mean, 
+    # degradation_stddev, 
+    # e_s_variance, 
+    # ILL, 
+    # IALL, 
+    # RM, 
+    # RV
+# )
+
+
+
+# MONTE CARLO SIM, ONE TRACK, 5 YEARS
+num_simulations = 1000  # Number of Monte Carlo simulations
+result = monte(
+    time_horizon=5 * 365,
+    T_insp=32,
+    T_tamp=15,
+    T_step=1,
+    AL=1.5,
+    D_0LLs=0.352,
+    degradation_mean=-2.379,
+    degradation_stddev=0.756,
+    e_s_variance=0.041,
+    ILL=0.4,
+    IALL=0.05,
+    RM=35,
+    RV=7,
+    num_simulations=num_simulations,
+    inspection_cost=240,
+    preventive_maintenance_cost=5000,
+    normal_corrective_maintenance_cost=11000,
+    emergency_corrective_maintenance_cost=40000
 )
 
-# Print the result
 print(result)
