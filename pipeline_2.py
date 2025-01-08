@@ -14,7 +14,7 @@ D_0LLs = 0.352  # Initial degradation value after tamping (given in the paper)
 degradation_mean = -2.379  # Log mean for degradation rate
 degradation_stddev = 0.756  # Log standard deviation for degradation rate
 e_s_mean = 0  # Mean of the Gaussian error term
-e_s_variance = 0.041  # Variance of the Gaussian error term
+e_s_variance = np.sqrt(0.041)  # Variance of the Gaussian error term (converted to standard dev for simplicity in later calcs)
 
 # Parameters for recovery model
 recovery_coefficients = {
@@ -24,7 +24,7 @@ recovery_coefficients = {
     "beta_3": -0.043
 }
 e_LL_mean = 0  # Mean of the Gaussian noise for recovery
-e_LL_variance = 0.15  # Variance of the Gaussian noise for recovery
+e_LL_variance = np.sqrt( 0.15)  # Variance of the Gaussian noise for recovery (converted to standard dev for simplicity in later calcs)
 
 # Parameters for defect probability model
 defect_coefficients = {
@@ -59,7 +59,6 @@ time_step = 1  # Daily degradation update
 """
 PARAMETERS END
 """
-
 def take_in(file_path):
     """
     Reads an Excel file and calculates constants and parameters related to degradation and recovery.
@@ -80,11 +79,53 @@ def take_in(file_path):
 
     # Sort by date to ensure chronological order
     df = df.sort_values(by="Date")
+    df["Date"] = pd.to_datetime(df["Date"])  # Ensure Date column is datetime
+
+    # Calculate time intervals (in days)
+    df["Time Interval"] = (df["Date"] - df["Date"].shift(1)).dt.days
+
+    # Identify ranges for degradation rate calculations
+    tamping_indices = df[df["Tamping Performed"] == 1].index
+    degradation_periods = []
+
+    for i in range(len(tamping_indices) - 1):
+        start = tamping_indices[i] + 1  # Start the day after tamping
+        end = tamping_indices[i + 1]  # End on the next tamping day
+        degradation_periods.append(df.loc[start:end])
+
+    # Calculate degradation rates for each period
+    degradation_rates = []
+    time_intervals = []
+
+    for period in degradation_periods:
+        period["Degradation Rate"] = period["DLL_s"].diff() / period["Time Interval"]
+        degradation_rates.extend(period["Degradation Rate"].dropna().tolist())
+        time_intervals.extend(period["Time Interval"].dropna().tolist())
+
+    # Test for lognormal distribution
+    log_dll_values = np.log(df["DLL_s"][df["DLL_s"] > 0])  # Log-transform positive values only
+    result = anderson(log_dll_values, dist="norm")
+
+    if result.significance_level[0] > 0.05:  # Assuming 5% significance level
+        print("DLL_s values follow a lognormal distribution.")
+        lognormal_mean = np.mean(log_dll_values)  # Mean of log-transformed values
+        lognormal_stddev = np.std(log_dll_values)  # Stddev of log-transformed values
+
+        # Convert back to lognormal scale
+        degradation_mean = np.exp(lognormal_mean + 0.5 * lognormal_stddev**2)
+        degradation_stddev = np.sqrt((np.exp(lognormal_stddev**2) - 1) * np.exp(2 * lognormal_mean + lognormal_stddev**2))
+    else:
+        print("DLL_s values do not follow a lognormal distribution. Assuming normal distribution.")
+        degradation_mean = np.mean(df["DLL_s"])
+        degradation_stddev = np.std(df["DLL_s"])
+
+    print(f"Degradation Mean: {degradation_mean}")
+    print(f"Degradation Stddev: {degradation_stddev}")
 
     # Determine D_0LLs
     most_recent_tamping = df[df["Tamping Performed"] == 1].iloc[-1]
     most_recent_index = most_recent_tamping.name
-    
+
     if most_recent_index + 1 < len(df):
         D_0LLs = df.iloc[most_recent_index + 1]["DLL_s"]
     else:
@@ -92,82 +133,15 @@ def take_in(file_path):
 
     print(f"D_0LLs (Initial degradation value after tamping): {D_0LLs}")
 
-    # Extract DLL_s values
-    dll_values = df["DLL_s"].values
-
-    # Test for lognormal distribution
-    log_dll_values = np.log(dll_values[dll_values > 0])  # Log-transform positive values only
-    result = anderson(log_dll_values, dist='norm')
-
-    if result.significance_level[0] > 0.05:  # Assuming 5% significance level
-        print("DLL_s values follow a lognormal distribution.")
-        
-        μ = np.mean(log_dll_values)  # Mean of log-transformed values
-        σ = np.std(log_dll_values)  # Stddev of log-transformed values
-
-        # Convert back to lognormal scale
-        degradation_mean = np.exp(μ + 0.5 * σ**2)
-        degradation_stddev = np.sqrt((np.exp(σ**2) - 1) * np.exp(2 * μ + σ**2))
-    else:
-        print("DLL_s values do not follow a lognormal distribution. Assuming normal distribution.")
-        degradation_mean = np.mean(dll_values)
-        degradation_stddev = np.std(dll_values)
-
-    print(f"Degradation Mean: {degradation_mean}")
-    print(f"Degradation Stddev: {degradation_stddev}")
-
-    # Calculate error term variance
-    residuals = dll_values - (D_0LLs + degradation_mean)
-    e_s_variance = np.var(residuals)
-    e_s_mean = np.mean(residuals)  # Should be near zero
-
-    print(f"Error Term Mean (e_s_mean): {e_s_mean}")
-    print(f"Error Term Variance (e_s_variance): {e_s_variance}")
-
-    # Calculate Recovery Values
-    recovery_coefficients = {
-        "alpha_1": -0.269,
-        "beta_1": 0.51,
-        "beta_2": 0.207,
-        "beta_3": -0.043
-    }
-
-    # Map tamping types: 2 -> 1 (complete), 1 -> 0 (partial)
-    df["x_s"] = df["Tamping Type"].map({2: 1, 1: 0}).fillna(0)
-
-    recovery_values = []
-    for _, row in df.iterrows():
-        if row["Tamping Performed"] == 1:
-            DLL_s = row["DLL_s"]
-            x_s = row["x_s"]
-            epsilon_LL = np.random.normal(0, np.sqrt(0.15))
-
-            R_LL_s = (
-                recovery_coefficients["alpha_1"] +
-                recovery_coefficients["beta_1"] * DLL_s +
-                recovery_coefficients["beta_2"] * x_s +
-                recovery_coefficients["beta_3"] * x_s * DLL_s +
-                epsilon_LL
-            )
-            recovery_values.append(R_LL_s)
-        else:
-            recovery_values.append(None)
-
-    df["Recovery Value"] = recovery_values
-
-    # Print recovery values for debugging
-    print("Recovery values calculated:")
-    print(df[["Date", "DLL_s", "Tamping Performed", "Tamping Type", "Recovery Value"]])
-
     # Return calculated constants and parameters
     return {
         "D_0LLs": D_0LLs,
         "degradation_mean": degradation_mean,
         "degradation_stddev": degradation_stddev,
-        "e_s_mean": e_s_mean,
-        "e_s_variance": e_s_variance,
-        "recovery_values": df["Recovery Value"].tolist()
+        "degradation_rates": degradation_rates,
+        "time_intervals": time_intervals,
     }
+
 
 def derive_recovery(file_path):
     # NOTE, the inherent degradation, by nature of observation periods, are included in RLL_s calculation
@@ -325,18 +299,15 @@ def derive_defect_probabilities(file_path):
 
 def degrade(current_DLL_s, b_s, time, e_s):
     """
-    Models the degradation progression over a given time interval.
+    Models the degradation progression over a time interval.
     
-    The intention is to call this daily. EG t = time since tamped.
 
     Parameters:
         current_DLL_s (float): Current DLL_s value.
-        degradation_rate_mean (float): Log mean of degradation rate.
-        degradation_rate_stddev (float): Log standard deviation of degradation rate.
+        b_s (float): Degradation rate.
         time (int): Number of days over which degradation occurs.
+        e_s(float): Error term.
 
-    Returns:
-        float: Updated DLL_s value after degradation.
     """
     
     next_DLL_s = current_DLL_s + (b_s * time) + e_s
@@ -347,16 +318,20 @@ def recovery(current_DLL_s, recovery_coefficients, tamping_type, re_s_m, re_s_s)
     """
     Applies the recovery model to compute the updated DLL_s after tamping.
     re_s_m and re_s_s are the deciders for the error term
+    
+    Parameters:
+    current_DLL_s (float): DLL_s before recovery. 
+    recovery_coefficients (set of floats): Calculated recovery coefficients. 
+    tamping_type (int): Binary 0 or 1, 0 for partial, 1 for complete.
+    re_s_m (float): mean of recovery residuals
+    re_s_s (float): standard deviation of recovery residuals
 
-    Returns:
-        float: Updated DLL_s value after recovery.
     """
     alpha_1 = recovery_coefficients["alpha_1"]
     beta_1 = recovery_coefficients["beta_1"]
     beta_2 = recovery_coefficients["beta_2"]
     beta_3 = recovery_coefficients["beta_3"]
 
-    noise_stddev = np.sqrt(re_s_s)
     epsilon_LL = np.random.normal(re_s_m, re_s_s)
 
     R_LL_s = (
@@ -372,14 +347,12 @@ def recovery(current_DLL_s, recovery_coefficients, tamping_type, re_s_m, re_s_s)
 
 def defect(current_DLL_s, defect_coefficients):
     """
-    Calculates defect probabilities using ordinal logistic regression.
+    Calculates defect probabilities.
 
     Parameters:
         current_DLL_s (float): Current DLL_s value.
         defect_coefficients (dict): Coefficients for the defect probability model.
 
-    Returns:
-        dict: Probabilities for defect levels (P1, P2, P3).
     """
     C_0 = defect_coefficients["C_0"]
     C_1 = defect_coefficients["C_1"]
@@ -396,7 +369,7 @@ def defect(current_DLL_s, defect_coefficients):
 
 
 
-def sim_seg(time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, degradation_mean, degradation_stddev,e_s_mean, e_s_variance, re_s_m, re_s_s, ILL, IALL, RM, RV):
+def sim_seg(time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, lognormal_mean, lognormal_stddev,e_s_mean, e_s_s, re_s_m, re_s_s, ILL, IALL, RM, RV):
     """
     Simulates a single segment of the track up to the specified time horizon.
 
@@ -407,16 +380,16 @@ def sim_seg(time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, degradation_mean, 
         T_step (int): Amount of time that passes for each step. Standard is 1. 
         AL (float): Alert limit for DLL_s.
         D_0LLs (float): Initial degradation value after tamping.
-        degradation_mean (float): Mean of the degradation rate (lognormal scale).
-        degradation_stddev (float): Standard deviation of the degradation rate (lognormal scale).
-        e_s_variance (float): Variance of the Gaussian noise term for degradation.
+        lognormal_mean (float): Mean of the degradation rate.
+        lognormal_stddev (float): Standard deviation of the degradation rate.
+        e_s_s (float): Stddev of the Gaussian noise term for degradation.
         e_s_mean (float): mean of degradation error term (0.00 in test case)
-        re_s_m (float): mean of recovery residuals
-        re_s_v (float): standard dev of recovery residuals
-        ILL (float): Limit for IL
-        IALL (float): Limit for IALL
-        RM (int): mean amount of days to perform tamping for IL defects
-        RV (int): Variance in days for time taken to tamp IL defects 
+        re_s_m (float): mean of recovery residuals.
+        re_s_s (float): standard dev of recovery residuals.
+        ILL (float): Limit for IL.
+        IALL (float): Limit for IALL.
+        RM (int): mean amount of days to perform tamping for IL defects.
+        RV (int): Variance in days for time taken to tamp IL defects. 
 
     Returns:
         dict: Contains final state of simulation and maintenance counters.
@@ -431,7 +404,7 @@ def sim_seg(time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, degradation_mean, 
     total_response_delay = 0 # total response delay accrued
 
     # b_s sampling
-    b_s = np.random.lognormal(mean=degradation_mean, sigma=degradation_stddev)  # Sample degradation rate
+    b_s = np.random.lognormal(mean=lognormal_mean, sigma=lognormal_stddev)  # Sample degradation rate
     # print(f"Initial degradation rate b_s: {b_s}")
 
     while t <= time_horizon:
@@ -441,7 +414,7 @@ def sim_seg(time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, degradation_mean, 
         t += T_step
        #  print(f"Incremented time t: {t}")
 
-        e_s = np.random.normal(e_s_mean, np.sqrt(e_s_variance))
+        e_s = np.random.normal(e_s_mean, e_s_s)
        #  print(f"Sampled error term e_s: {e_s}")
 
         # Formula from paper
@@ -458,7 +431,7 @@ def sim_seg(time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, degradation_mean, 
                #  print(f"Updated D_0LLs after recovery: {D_0LLs}")
                 Npm += 1
                 tn = t
-                b_s = np.random.lognormal(mean=degradation_mean, sigma=degradation_stddev)
+                b_s = np.random.lognormal(mean=lognormal_mean, sigma=lognormal_stddev)
                #  print(f"Sampled new degradation rate b_s: {b_s}")
             else:
                 print(f"DLL_s_t ({DLL_s_t}) <= AL ({AL}), no preventive maintenance needed")
