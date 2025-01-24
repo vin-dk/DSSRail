@@ -4,11 +4,19 @@ import pandas as pd
 from scipy.stats import anderson
 from statsmodels.miscmodels.ordinal_model import OrderedModel
 from sklearn.linear_model import LinearRegression
+import matplotlib.pyplot as plt
+
+# NOTE TO SELF: 
+# We need to change the input to the defect model such that each dlls is assigned a 0 - 2 number indicating isolated defect. This helps the model predict isolated defect based on DLLs
+# We also need to add an option for the case that we see before and after recovery. That is, we see recovery effect isolated. This helps the recovery model, but IS NOT required. 
+# Some other changes, such as to output, may need to be implemented, but for the most part is ok. We at least need base excel output, further analysis done by operator. 
+
+# Also to add, is the defect model, such that we expect 5 columns, with isolated defect indicated
+
 
 """
 THESE ARE THE PARAMETERS FOR A GOOD RUN
 """
-
 # Constants and parameters
 D_0LLs = 0.352  # Initial degradation value after tamping (given in the paper)
 degradation_mean = -2.379  # Log mean for degradation rate
@@ -59,6 +67,7 @@ time_step = 1  # Daily degradation update
 """
 PARAMETERS END
 """
+
 def take_in(file_path):
     """
     Reads an Excel file and calculates constants and parameters related to degradation and recovery.
@@ -103,15 +112,14 @@ def take_in(file_path):
         time_intervals.extend(period["Time Interval"].dropna().tolist())
 
     # Test for lognormal distribution
-    log_dll_values = np.log(df["DLL_s"][df["DLL_s"] > 0])  # Log-transform positive values only
+    log_dll_values = np.log(df["DLL_s"][df["DLL_s"] > 0])  
     result = anderson(log_dll_values, dist="norm")
 
-    if result.significance_level[0] > 0.05:  # Assuming 5% significance level
+    if result.significance_level[0] > 0.05:  
         print("DLL_s values follow a lognormal distribution.")
-        lognormal_mean = np.mean(log_dll_values)  # Mean of log-transformed values
-        lognormal_stddev = np.std(log_dll_values)  # Stddev of log-transformed values
+        lognormal_mean = np.mean(log_dll_values) 
+        lognormal_stddev = np.std(log_dll_values)  
 
-        # Convert back to lognormal scale
         degradation_mean = np.exp(lognormal_mean + 0.5 * lognormal_stddev**2)
         degradation_stddev = np.sqrt((np.exp(lognormal_stddev**2) - 1) * np.exp(2 * lognormal_mean + lognormal_stddev**2))
     else:
@@ -122,7 +130,6 @@ def take_in(file_path):
     print(f"Degradation Mean: {degradation_mean}")
     print(f"Degradation Stddev: {degradation_stddev}")
 
-    # Determine D_0LLs
     most_recent_tamping = df[df["Tamping Performed"] == 1].iloc[-1]
     most_recent_index = most_recent_tamping.name
 
@@ -133,7 +140,6 @@ def take_in(file_path):
 
     print(f"D_0LLs (Initial degradation value after tamping): {D_0LLs}")
 
-    # Return calculated constants and parameters
     return {
         "D_0LLs": D_0LLs,
         "degradation_mean": degradation_mean,
@@ -147,7 +153,7 @@ def derive_recovery(file_path):
     # NOTE, the inherent degradation, by nature of observation periods, are included in RLL_s calculation
     # paper does not mention???
     """
-    Derives recovery coefficients from the provided dataset using regression and validates residual normality.
+    Derives recovery coefficients from the provided dataset using regression and validates res normality.
 
     Parameters:
         file_path (str): Path to the Excel file containing track data.
@@ -155,15 +161,14 @@ def derive_recovery(file_path):
     Returns:
         dict: Derived recovery coefficients {alpha_1, beta_1, beta_2, beta_3} and error term stats {mean, stddev}.
     """
-    # Read Excel file
     df = pd.read_excel(file_path)
 
-    # Ensure necessary columns exist
+    # Ensure necessary columns exist ( this will have to be changed with 5th column update)
     required_columns = ["Date", "DLL_s", "Tamping Performed", "Tamping Type"]
     if not all(col in df.columns for col in required_columns):
         raise ValueError(f"Input file must contain the following columns: {required_columns}")
 
-    # Filter tamping rows
+    # Tamping rows
     tamping_events = df[df["Tamping Performed"] == 1]
 
     # Ensure there are enough points
@@ -178,18 +183,17 @@ def derive_recovery(file_path):
         if index + 1 < len(df):
             R_LL_s.append(DLL_s_values[index] - DLL_s_values[index + 1])
 
-    tamping_events = tamping_events.iloc[:-1]  # Exclude last tamping event if no subsequent value exists
+    tamping_events = tamping_events.iloc[:-1]  # Exclude last tamping event if no pair exists
 
     # Prepare regression input
     X = tamping_events[["DLL_s", "Tamping Type"]].copy()
     X["Tamping Type"] = X["Tamping Type"].map({1: 0, 2: 1})  # Map tamping type: 1 -> 0 (partial), 2 -> 1 (complete)
     X["Interaction"] = X["DLL_s"] * X["Tamping Type"]  # Interaction term
 
-    # Convert to numpy arrays
     X = X.values
     Y = np.array(R_LL_s)
 
-    # Perform regression
+    # regression
     model = LinearRegression()
     model.fit(X, Y)
 
@@ -206,10 +210,10 @@ def derive_recovery(file_path):
     # Calculate residuals
     residuals = Y - model.predict(X)
 
-    # Test residuals for normality using Anderson-Darling test
+    # Test residuals 
     ad_test_result = anderson(residuals, dist='norm')
 
-    if ad_test_result.significance_level[2] > 0.05:  # Check p-value (5% significance level)
+    if ad_test_result.significance_level[2] > 0.05:  # Check p-value 
         print("Residuals follow a normal distribution.")
         residual_mean = np.mean(residuals)
         residual_stddev = np.std(residuals)
@@ -233,8 +237,12 @@ def derive_recovery(file_path):
 # coefficients = derive_recovery("mock_data_file.xlsx")
 # print(coefficients)
 
+# We need alt recovery method here which expects a recovery JUST BEFORE, and JUST AFTER tamping
+
 
 def derive_defect_probabilities(file_path):
+    # INCORRECT, we will have to do the alternate method here
+    # We were grouping based on classifying DLLs, instead we expect some isolated defect present (not part of DLLs) 
     """
     Derives parameters for predicting defect probabilities using ordinal logistic regression.
 
@@ -244,15 +252,13 @@ def derive_defect_probabilities(file_path):
     Returns:
         dict: Coefficients {C0, C1, beta} and goodness-of-fit metrics.
     """
-    # Load data
     df = pd.read_excel(file_path)
 
-    # Ensure necessary columns exist
     required_columns = ["DLL_s"]
     if not all(col in df.columns for col in required_columns):
         raise ValueError(f"Input file must contain the following columns: {required_columns}")
 
-    # Assign defect levels based on thresholds
+    # INCORRECT
     def assign_defect_level(dll_s):
         if dll_s < 1.5:
             return 1  # No defect
@@ -263,11 +269,9 @@ def derive_defect_probabilities(file_path):
 
     df["Defect Level"] = df["DLL_s"].apply(assign_defect_level)
 
-    # Extract relevant data
     X = df["DLL_s"].values
     Y = df["Defect Level"].values  # 1: No defect, 2: Level A defect, 3: Level B defect
 
-    # Fit ordinal logistic regression
     model = OrderedModel(Y, X, distr='logit')
     results = model.fit()
 
@@ -277,8 +281,7 @@ def derive_defect_probabilities(file_path):
     C1 = params[1]  # Intercept for transition from Level 2 to Level 3
     beta = params[2]  # Coefficient for DLL_s
 
-    # Goodness-of-fit
-    gof = results.prsquared  # McFadden's R-squared
+    gof = results.prsquared
 
     print("Derived Defect Probability Parameters:")
     print(f"C0 (Intercept for no defect): {C0}")
@@ -610,6 +613,8 @@ def AL_analyze(
         results.append({
             "Trial Number": trial_number,
             "AL": current_AL,
+            "ILL (IL)": ILL,  # Adding the constant ILL value
+            "IALL (IAL)": IALL,  # Adding the constant IALL value
             "Mean Normal CM Actions": result["Average Normal Corrective Maintenances"],
             "Mean Emergency CM Actions": result["Average Emergency Corrective Maintenances"],
             "Mean PM Actions": result["Average Preventive Maintenances"]
@@ -626,11 +631,91 @@ def AL_analyze(
     df_results.to_excel(output_file, index=False)
     print(f"AL analysis results saved to {output_file}")
 
+def AL_graph(
+    time_horizon, T_insp, T_tamp, T_step, D_0LLs, degradation_mean,
+    degradation_stddev, e_s_mean, e_s_variance, re_s_m, re_s_s, ILL, IALL, RM, RV,
+    num_simulations, inspection_cost, preventive_maintenance_cost,
+    normal_corrective_maintenance_cost, emergency_corrective_maintenance_cost,
+    min_AL, max_AL, inc_AL, output_file="AL_analysis.xlsx"
+):
+    """
+    Analyzes the performance of the Monte Carlo simulation over a range of AL values
+    and generates a cost graph.
+
+    Parameters:
+        Same as `monte()`, with additional parameters:
+        - min_AL (float): Starting value of AL.
+        - max_AL (float): Ending value of AL.
+        - inc_AL (float): Increment value for AL.
+        - output_file (str): Name of the Excel file to save the results.
+
+    Returns:
+        None: Saves the results to an Excel file and plots the cost graph.
+    """
+    results = []
+    trial_number = 1
+    AL_values = []
+    total_costs = []
+
+    # Iterate over AL values
+    current_AL = min_AL
+    while current_AL <= max_AL:
+        print(f"Running trial {trial_number} with AL = {current_AL:.2f}")
+
+        # Run the Monte Carlo simulation with the current AL value
+        result = monte(
+            time_horizon, T_insp, T_tamp, T_step, current_AL, D_0LLs,
+            degradation_mean, degradation_stddev, e_s_mean, e_s_variance,
+            re_s_m, re_s_s, ILL, IALL, RM, RV, num_simulations,
+            inspection_cost, preventive_maintenance_cost,
+            normal_corrective_maintenance_cost,
+            emergency_corrective_maintenance_cost
+        )
+
+        # Extract the total cost for the current AL
+        total_cost = result["Average Cost"]
+
+        # Append AL and cost to the lists for plotting
+        AL_values.append(current_AL)
+        total_costs.append(total_cost)
+
+        # Append results to the list
+        results.append({
+            "Trial Number": trial_number,
+            "AL": current_AL,
+            "Total Cost": total_cost,
+            "Mean Normal CM Actions": result["Average Normal Corrective Maintenances"],
+            "Mean Emergency CM Actions": result["Average Emergency Corrective Maintenances"],
+            "Mean PM Actions": result["Average Preventive Maintenances"]
+        })
+
+        # Increment AL and trial number
+        current_AL += inc_AL
+        trial_number += 1
+
+    # Convert results to a DataFrame
+    df_results = pd.DataFrame(results)
+
+    # Save to Excel
+    df_results.to_excel(output_file, index=False)
+    print(f"AL analysis results saved to {output_file}")
+
+    # Plot the cost graph
+    plt.figure(figsize=(10, 6))
+    plt.plot(AL_values, total_costs, marker='o', linestyle='--', color='b', label="Total Maintenance Cost")
+    plt.axhline(y=min(total_costs), color='r', linestyle='-', label="Minimum Cost")
+    plt.xlabel("Maintenance Limit (AL, mm)")
+    plt.ylabel("Total Maintenance Cost per Year (SEK)")
+    plt.title("Effect of Maintenance Limit on Total Maintenance Cost")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
 
 # Sim parameters (ideal)
 time_horizon = 5 * 365  
-T_insp = 32  
-T_tamp = 15  
+T_insp = 4  
+T_tamp = 12  
 T_step = 1  
 AL = 1.5  
 ILL = 0.4 
@@ -676,5 +761,6 @@ AL_analyze(
     degradation_stddev, e_s_mean, e_s_variance, re_s_m, re_s_s, ILL, IALL, RM, RV,
     num_simulations, inspection_cost, preventive_maintenance_cost,
     normal_corrective_maintenance_cost, emergency_corrective_maintenance_cost,
-    min_AL = 1.2 , max_AL = 1.9 , inc_AL = 0.05, output_file="AL_analysis.xlsx"
+    min_AL = 1.2 , max_AL = 1.95 , inc_AL = 0.05, output_file="AL_analysis.xlsx"
 )
+
