@@ -82,7 +82,7 @@ def take_in(file_path):
     df = pd.read_excel(file_path)
 
     # Ensure necessary columns exist
-    required_columns = ["Date", "DLL_s", "Tamping Performed", "Tamping Type"]
+    required_columns = ["Date", "DLL_s", "Tamping Performed", "Tamping Type", "Defect"]
     if not all(col in df.columns for col in required_columns):
         raise ValueError(f"Input file must contain the following columns: {required_columns}")
 
@@ -164,7 +164,7 @@ def derive_recovery(file_path):
     df = pd.read_excel(file_path)
 
     # Ensure necessary columns exist ( this will have to be changed with 5th column update)
-    required_columns = ["Date", "DLL_s", "Tamping Performed", "Tamping Type"]
+    required_columns = ["Date", "DLL_s", "Tamping Performed", "Tamping Type", "Defect"]
     if not all(col in df.columns for col in required_columns):
         raise ValueError(f"Input file must contain the following columns: {required_columns}")
 
@@ -233,6 +233,126 @@ def derive_recovery(file_path):
         "e_s_stddev": residual_stddev
     }
 
+
+# This is the true method 
+def derive_accurate_recovery(file_path, bs_values):
+    """
+    Derives recovery coefficients from the provided dataset using regression,
+    adjusting the observed recovery effect by adding back the expected degradation
+    over the recovery period. This expected degradation is computed using the average
+    of the provided daily degradation rates (bs_values). That is, if a tamping event
+    shows an observed recovery of R_LL_s over an interval T, then the adjusted recovery
+    is R_LL_s + (average_b_s * T).
+
+    Parameters:
+        file_path (str): Path to the Excel file containing track data.
+        bs_values (array-like): Array (or similar) of daily degradation rates (b_s) as
+                                computed in take_in.
+
+    Returns:
+        dict: Derived recovery coefficients {alpha_1, beta_1, beta_2, beta_3} and error term stats {mean, stddev}.
+    """
+    import pandas as pd
+    import numpy as np
+    from sklearn.linear_model import LinearRegression
+    from scipy.stats import anderson
+
+    # Load the Excel file
+    df = pd.read_excel(file_path)
+
+    # Ensure the necessary columns exist
+    required_columns = ["Date", "DLL_s", "Tamping Performed", "Tamping Type", "Defect"]
+    if not all(col in df.columns for col in required_columns):
+        raise ValueError(f"Input file must contain the following columns: {required_columns}")
+
+    # Convert Date column to datetime if not already done
+    df["Date"] = pd.to_datetime(df["Date"])
+
+    # Filter for tamping events
+    tamping_events = df[df["Tamping Performed"] == 1]
+    if len(tamping_events) < 4:
+        raise ValueError("Not enough tamping events to perform regression.")
+
+    # Compute the average daily degradation rate from bs_values
+    average_bs = np.mean(bs_values)
+    
+    # Compute the adjusted recovery effect (R_LL_s_adjusted) for each tamping pair.
+    # For each tamping event (except the last one), calculate:
+    # observed_R = DLL_s (at tamping) - DLL_s (at next measurement)
+    # time_interval = days between the two dates (using the same method as in take_in)
+    # adjusted_R = observed_R + (average_bs * time_interval)
+    DLL_s_values = df["DLL_s"].values
+    R_LL_s_adjusted = []
+    tamping_indices = tamping_events.index.tolist()  # indices of tamping events
+
+    for i in range(len(tamping_indices) - 1):
+        idx = tamping_indices[i]
+        next_idx = tamping_indices[i + 1]
+        
+        # Observed recovery effect from tamping (improvement in DLL_s)
+        observed_R = DLL_s_values[idx] - DLL_s_values[next_idx]
+        
+        # Determine the time interval (in days) between these two measurements
+        t1 = df.loc[idx, "Date"]
+        t2 = df.loc[next_idx, "Date"]
+        interval = (t2 - t1).days
+        
+        # Adjust the recovery effect by adding back the expected degradation
+        # over this interval (average_bs * interval)
+        adjusted_R = observed_R + (average_bs * interval)
+        R_LL_s_adjusted.append(adjusted_R)
+
+    # We use tamping events (except the last one) as the observations for regression.
+    tamping_events = tamping_events.iloc[:-1]
+
+    # Prepare regression input.
+    # Use "DLL_s" and "Tamping Type" as predictors, with an interaction term.
+    X = tamping_events[["DLL_s", "Tamping Type"]].copy()
+    # Map Tamping Type: 1 -> 0 (partial), 2 -> 1 (complete)
+    X["Tamping Type"] = X["Tamping Type"].map({1: 0, 2: 1})
+    X["Interaction"] = X["DLL_s"] * X["Tamping Type"]
+    X = X.values
+
+    # The adjusted recovery effects become the response variable Y.
+    Y = np.array(R_LL_s_adjusted)
+
+    # Perform linear regression on the adjusted recovery effects.
+    model = LinearRegression()
+    model.fit(X, Y)
+
+    # Extract regression coefficients
+    alpha_1 = model.intercept_
+    beta_1, beta_2, beta_3 = model.coef_
+
+    print("Derived Accurate Recovery Coefficients:")
+    print(f"alpha_1 (Intercept): {alpha_1}")
+    print(f"beta_1 (Coefficient for DLL_s): {beta_1}")
+    print(f"beta_2 (Coefficient for Tamping Type): {beta_2}")
+    print(f"beta_3 (Interaction Coefficient): {beta_3}")
+
+    # Compute residuals and test for normality of errors
+    residuals = Y - model.predict(X)
+    ad_test_result = anderson(residuals, dist='norm')
+    if ad_test_result.significance_level[2] > 0.05:
+        residual_mean = np.mean(residuals)
+        residual_stddev = np.std(residuals)
+        print("Residuals follow a normal distribution.")
+        print(f"Residual Mean: {residual_mean}")
+        print(f"Residual Stddev: {residual_stddev}")
+    else:
+        print("Residuals do NOT follow a normal distribution. Error term calculation is invalid.")
+        residual_mean = None
+        residual_stddev = None
+
+    return {
+        "alpha_1": alpha_1,
+        "beta_1": beta_1,
+        "beta_2": beta_2,
+        "beta_3": beta_3,
+        "e_s_mean": residual_mean,
+        "e_s_stddev": residual_stddev
+    }
+
 # Example 
 # coefficients = derive_recovery("mock_data_file.xlsx")
 # print(coefficients)
@@ -241,53 +361,66 @@ def derive_recovery(file_path):
 
 
 def derive_defect_probabilities(file_path):
-    # INCORRECT, we will have to do the alternate method here
-    # We were grouping based on classifying DLLs, instead we expect some isolated defect present (not part of DLLs) 
     """
-    Derives parameters for predicting defect probabilities using ordinal logistic regression.
+    Derives parameters for predicting defect probabilities using ordinal logistic regression,
+    using the explicit defect classification from the "defect" column.
 
     Parameters:
         file_path (str): Path to the Excel file containing track data.
 
     Returns:
-        dict: Coefficients {C0, C1, beta} and goodness-of-fit metrics.
+        dict: Contains the threshold parameters (C0, C1), the coefficient for DLL_s (beta),
+              and a goodness-of-fit metric.
     """
+    import pandas as pd
+    from statsmodels.miscmodels.ordinal_model import OrderedModel
+    import numpy as np
+
+    # Load the Excel file
     df = pd.read_excel(file_path)
 
-    required_columns = ["DLL_s"]
+    # Ensure necessary columns exist
+    required_columns = ["DLL_s", "Defect"]
     if not all(col in df.columns for col in required_columns):
         raise ValueError(f"Input file must contain the following columns: {required_columns}")
 
-    # INCORRECT
-    def assign_defect_level(dll_s):
-        if dll_s < 1.5:
-            return 1  # No defect
-        elif dll_s < 3.0:
-            return 2  # Level A defect
-        else:
-            return 3  # Level B defect
+    # Prepare predictor and response variables.
+    # X must be a DataFrame (even if it's a single column)
+    X = df[["DLL_s"]]
+    Y = df["Defect"]  # Ordinal response variable: expected values 0, 1, or 2
 
-    df["Defect Level"] = df["DLL_s"].apply(assign_defect_level)
-
-    X = df["DLL_s"].values
-    Y = df["Defect Level"].values  # 1: No defect, 2: Level A defect, 3: Level B defect
-
+    # Initialize and fit the ordinal logistic regression model using the logit link.
     model = OrderedModel(Y, X, distr='logit')
-    results = model.fit()
+    results = model.fit(method='bfgs', disp=False)
 
-    # Extract coefficients
+    # Extract parameter estimates.
+    # The model returns threshold parameters (one less than the number of categories)
+    # and the coefficient for DLL_s.
     params = results.params
-    C0 = params[0]  # Intercept for transition from Level 1 to Level 2
-    C1 = params[1]  # Intercept for transition from Level 2 to Level 3
-    beta = params[2]  # Coefficient for DLL_s
 
+    # Extract threshold parameters (they should be named something like 'threshold_1' and 'threshold_2')
+    threshold_params = {k: v for k, v in params.items() if "threshold" in k}
+    if len(threshold_params) != 2:
+        raise ValueError("Expected exactly 2 threshold parameters for a 3-category ordinal response.")
+
+    # Sort the threshold parameters by their keys to preserve the natural order.
+    sorted_threshold_keys = sorted(threshold_params.keys())
+    C0 = threshold_params[sorted_threshold_keys[0]]  # First threshold (separates category 0 and 1)
+    C1 = threshold_params[sorted_threshold_keys[1]]  # Second threshold (separates category 1 and 2)
+
+    # Extract the coefficient for DLL_s.
+    if "DLL_s" not in params:
+        raise ValueError("DLL_s coefficient not found in model parameters.")
+    beta = params["DLL_s"]
+
+    # Obtain a goodness-of-fit metric (pseudo R-squared in this case)
     gof = results.prsquared
 
     print("Derived Defect Probability Parameters:")
-    print(f"C0 (Intercept for no defect): {C0}")
-    print(f"C1 (Intercept for level A defect): {C1}")
-    print(f"Beta (Coefficient for DLL_s): {beta}")
-    print(f"Goodness-of-fit: {gof}")
+    print(f"C0 (Threshold between defect categories 0 and 1): {C0}")
+    print(f"C1 (Threshold between defect categories 1 and 2): {C1}")
+    print(f"beta (Coefficient for DLL_s): {beta}")
+    print(f"Goodness-of-fit (Pseudo R-squared): {gof}")
 
     return {
         "C0": C0,
@@ -630,6 +763,10 @@ def AL_analyze(
     # Save to Excel
     df_results.to_excel(output_file, index=False)
     print(f"AL analysis results saved to {output_file}")
+
+
+# The AL method given here is a sample method. I might have to build it downstream that we manipulate a target variable and see how it affects the pipeline. Think on this. I want it to be easy for the user
+# but not make it so that I must write a method for each test case. It should be variable and adaptive
 
 def AL_graph(
     time_horizon, T_insp, T_tamp, T_step, D_0LLs, degradation_mean,
