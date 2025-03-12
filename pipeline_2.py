@@ -82,12 +82,15 @@ def take_in(file_path):
     df = pd.read_excel(file_path)
 
     # Check if either "DLL_s" or "A" exists
-    if "DLL_s" not in df.columns and "A" not in df.columns:
-        raise ValueError(f"Input file must contain either 'DLL_s' or 'A' as a column.")
+    if "DLL_s" not in df.columns and "A" not in df.columns and "G" not in df.columns:
+        raise ValueError(f"Input file must contain either 'DLL_s','A', 'G' as a column.")
 
     # If "A" is present but "DLL_s" is not, rename "A" to "DLL_s"
     if "DLL_s" not in df.columns and "A" in df.columns:
-        df = df.rename(columns={"A": "DLL_s"})  # Rename internally
+        df = df.rename(columns={"A": "DLL_s"}) 
+    
+    if "DLL_s" not in df.columns and "G" in df.columns:
+        df = df.rename(columns={"G": "DLL_s"})
 
     # Ensure other necessary columns exist
     required_columns = ["Date", "DLL_s", "Tamping Performed", "Tamping Type", "Defect"]
@@ -172,12 +175,15 @@ def derive_recovery(file_path):
     df = pd.read_excel(file_path)
 
     # Check if either "DLL_s" or "A" exists
-    if "DLL_s" not in df.columns and "A" not in df.columns:
-        raise ValueError(f"Input file must contain either 'DLL_s' or 'A' as a column.")
+    if "DLL_s" not in df.columns and "A" not in df.columns and "G" not in df.columns:
+        raise ValueError(f"Input file must contain either 'DLL_s','A', 'G' as a column.")
 
     # If "A" is present but "DLL_s" is not, rename "A" to "DLL_s"
     if "DLL_s" not in df.columns and "A" in df.columns:
-        df = df.rename(columns={"A": "DLL_s"})  # Rename internally
+        df = df.rename(columns={"A": "DLL_s"}) 
+    
+    if "DLL_s" not in df.columns and "G" in df.columns:
+        df = df.rename(columns={"G": "DLL_s"})
 
     # Ensure other necessary columns exist
     required_columns = ["Date", "DLL_s", "Tamping Performed", "Tamping Type", "Defect"]
@@ -277,12 +283,15 @@ def derive_accurate_recovery(file_path, bs_values):
     df = pd.read_excel(file_path)
 
     # Check if either "DLL_s" or "A" exists
-    if "DLL_s" not in df.columns and "A" not in df.columns:
-        raise ValueError(f"Input file must contain either 'DLL_s' or 'A' as a column.")
+    if "DLL_s" not in df.columns and "A" not in df.columns and "G" not in df.columns:
+        raise ValueError(f"Input file must contain either 'DLL_s','A', 'G' as a column.")
 
     # If "A" is present but "DLL_s" is not, rename "A" to "DLL_s"
     if "DLL_s" not in df.columns and "A" in df.columns:
-        df = df.rename(columns={"A": "DLL_s"})  # Rename internally
+        df = df.rename(columns={"A": "DLL_s"}) 
+    
+    if "DLL_s" not in df.columns and "G" in df.columns:
+        df = df.rename(columns={"G": "DLL_s"})
 
     # Ensure other necessary columns exist
     required_columns = ["Date", "DLL_s", "Tamping Performed", "Tamping Type", "Defect"]
@@ -404,12 +413,15 @@ def derive_defect_probabilities(file_path):
     df = pd.read_excel(file_path)
 
     # Check if either "DLL_s" or "A" exists
-    if "DLL_s" not in df.columns and "A" not in df.columns:
-        raise ValueError(f"Input file must contain either 'DLL_s' or 'A' as a column.")
+    if "DLL_s" not in df.columns and "A" not in df.columns and "G" not in df.columns:
+        raise ValueError(f"Input file must contain either 'DLL_s','A', 'G' as a column.")
 
     # If "A" is present but "DLL_s" is not, rename "A" to "DLL_s"
     if "DLL_s" not in df.columns and "A" in df.columns:
-        df = df.rename(columns={"A": "DLL_s"})  # Rename internally
+        df = df.rename(columns={"A": "DLL_s"}) 
+    
+    if "DLL_s" not in df.columns and "G" in df.columns:
+        df = df.rename(columns={"G": "DLL_s"})
 
     # Ensure other necessary columns exist
     required_columns = ["Date", "DLL_s", "Tamping Performed", "Tamping Type", "Defect"]
@@ -1489,6 +1501,39 @@ def alt_bs(x, gamma, alpha, beta):
     
     return y
 
+
+def calculate_psi(cumulative_load, kf=KF, ml=ML):
+    # given constant
+    kf = 5.2
+    return 1 - np.exp(kf * ((cumulative_load / ml) - 1))
+
+
+def determine_psi(input_file, traffic_load_per_year, material_type, output_file="PSI_conver.xlsx"):
+    """
+    Reads an Excel file, calculates PSI values based on cumulative load, and saves the transformed data.
+
+    :param input_file: Path to the input Excel file
+    :param traffic_load_per_year: Annual traffic load (MGT per year)
+    :param material_type: Material type (1-6)
+    :param output_file: Path to save the output Excel file
+    """
+    # material constants
+    AGE_LIMITS = {1: 45, 2: 40, 3: 25, 4: 30, 5: 18, 6: 21}    
+    
+    if material_type not in AGE_LIMITS:
+        raise ValueError("Invalid material type. Must be one of: 1, 2, 3, 4, 5, 6")
+
+    ML = AGE_LIMITS[material_type] * traffic_load_per_year
+
+    df = pd.read_excel(input_file)
+
+    df["PSI"] = df["Cumulative Load"].apply(lambda cl: calculate_psi(cl, ml=ML))
+
+    output_df = df[["Date", "PSI", "Maintenance", "Maintenance Action"]]
+
+    output_df.to_excel(output_file, index=False)
+
+    print(f"Processed file saved as {output_file}")
 
 
 
