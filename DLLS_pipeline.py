@@ -5,25 +5,9 @@ from scipy.stats import anderson
 from statsmodels.miscmodels.ordinal_model import OrderedModel
 from sklearn.linear_model import LinearRegression
 import matplotlib.pyplot as plt
-
-# NOTE TO SELF: 
-# We need to change the input to the defect model such that each dlls is assigned a 0 - 2 number indicating isolated defect. This helps the model predict isolated defect based on DLLs
-# We also need to add an option for the case that we see before and after recovery. That is, we see recovery effect isolated. This helps the recovery model, but IS NOT required. 
-# Some other changes, such as to output, may need to be implemented, but for the most part is ok. We at least need base excel output, further analysis done by operator. 
-
-# Also to add, is the defect model, such that we expect 5 columns, with isolated defect indicated
-
 import subprocess
 import sys
-
-try:
-    import xlsxwriter
-except ImportError:
-    print("[!] xlsxwriter not found. Attempting to install...")
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "xlsxwriter"])
-    import xlsxwriter
-    print("[✓] xlsxwriter installed successfully.")
-
+import xlsxwriter
 
 """
 THESE ARE THE PARAMETERS FOR A GOOD RUN
@@ -82,110 +66,124 @@ IALL = 0.05  # Trigger emergency corrective if P3 > 0.05
 PARAMETERS END
 """
 
+def take_in_from_df(df):
+# global case
+    from tempfile import NamedTemporaryFile
+    import pandas as pd
+
+    with NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+        df.to_excel(tmp.name, index=False)
+        return take_in(tmp.name)
+    
+def derive_accurate_recovery_from_df(df, bs_values):
+    from tempfile import NamedTemporaryFile
+    import pandas as pd
+
+    with NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+        df.to_excel(tmp.name, index=False)
+        return derive_accurate_recovery(tmp.name, bs_values)
+
+
+def derive_defect_probabilities_from_df(df):
+    from tempfile import NamedTemporaryFile
+    import pandas as pd
+
+    with NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+        df.to_excel(tmp.name, index=False)
+        return derive_defect_probabilities(tmp.name)
+    
+def derive_recovery_from_df(df):
+    from tempfile import NamedTemporaryFile
+    import pandas as pd
+
+    with NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+        df.to_excel(tmp.name, index=False)
+        return derive_recovery(tmp.name)
+
 def take_in(file_path):
-    """
-    Reads an Excel file and calculates constants and parameters related to degradation and recovery.
-
-    Parameters:
-        file_path (str): Path to the Excel file containing track data.
-
-    Returns:
-        dict: Contains degradation stats, degradation rate list, and post-tamping DLL_s.
-    """
+# deg calc 
     import pandas as pd
     import numpy as np
     from scipy.stats import anderson
 
-    # === Input Validation ===
-    if not isinstance(file_path, str):
-        raise ValueError("file_path must be a string pointing to an Excel file.")
-
-    try:
-        df = pd.read_excel(file_path)
-    except Exception as e:
-        raise ValueError(f"Failed to read Excel file: {e}")
-
+    df = pd.read_excel(file_path)
     if df.empty:
-        raise ValueError("Input file is empty.")
+        raise ValueError("Input Excel file is empty.")
 
-    # Normalize DLL_s column
     if "DLL_s" not in df.columns:
         if "A" in df.columns:
             df = df.rename(columns={"A": "DLL_s"})
         elif "G" in df.columns:
             df = df.rename(columns={"G": "DLL_s"})
         else:
-            raise ValueError("Input file must contain 'DLL_s', 'A', or 'G' column.")
+            raise ValueError("Could not find DLL_s column.")
 
-    # Ensure all required columns exist
     required_columns = ["Date", "DLL_s", "Tamping Performed", "Tamping Type", "Defect"]
     if not all(col in df.columns for col in required_columns):
-        raise ValueError(f"Missing one or more required columns: {required_columns}")
+        raise ValueError(f"Missing required columns: {required_columns}")
 
-    # Validate and convert dates
-    try:
-        df["Date"] = pd.to_datetime(df["Date"])
-    except Exception:
-        raise ValueError("Failed to parse 'Date' column as datetime.")
-
-    # Sort chronologically
+    df["Date"] = pd.to_datetime(df["Date"])
     df = df.sort_values(by="Date")
 
-    # Time interval (in days)
-    df["Time Interval"] = (df["Date"] - df["Date"].shift(1)).dt.days
-
-    # Identify tamping events
     tamping_indices = df[df["Tamping Performed"] == 1].index.tolist()
     if len(tamping_indices) < 2:
-        raise ValueError("At least two tamping events are required to calculate degradation rates.")
-
-    # Slice into degradation periods
-    degradation_periods = []
-    for i in range(len(tamping_indices) - 1):
-        start = tamping_indices[i] + 1
-        end = tamping_indices[i + 1]
-        degradation_periods.append(df.loc[start:end])
+        raise ValueError("Need at least two tamping events to calculate degradation rates.")
 
     degradation_rates = []
     time_intervals = []
-    for period in degradation_periods:
-        period["Degradation Rate"] = period["DLL_s"].diff() / period["Time Interval"]
-        degradation_rates.extend(period["Degradation Rate"].dropna().tolist())
-        time_intervals.extend(period["Time Interval"].dropna().tolist())
 
-    # Lognormality check
-    dll_s_positive = df["DLL_s"][df["DLL_s"] > 0]
-    if dll_s_positive.empty:
-        raise ValueError("DLL_s must contain at least one positive value for lognormality check.")
+    for i in range(len(tamping_indices) - 1):
+        start_idx = tamping_indices[i] + 1
+        end_idx = tamping_indices[i + 1]
 
-    log_dll_values = np.log(dll_s_positive)
-    result = anderson(log_dll_values, dist="norm")
+        if end_idx <= start_idx or end_idx >= len(df):
+            continue
 
-    if result.statistic < result.critical_values[2]:  # 5% significance level
-        print("DLL_s values follow a lognormal distribution.")
-        lognormal_mean = np.mean(log_dll_values)
-        lognormal_stddev = np.std(log_dll_values)
-        degradation_mean = np.exp(lognormal_mean + 0.5 * lognormal_stddev**2)
-        degradation_stddev = np.sqrt(
-            (np.exp(lognormal_stddev**2) - 1) * np.exp(2 * lognormal_mean + lognormal_stddev**2)
-        )
+        sub_df = df.loc[start_idx:end_idx]
+        if sub_df.empty:
+            continue
+
+        dll_start = sub_df["DLL_s"].iloc[0]
+        dll_end = sub_df["DLL_s"].iloc[-1]
+        days = (sub_df["Date"].iloc[-1] - sub_df["Date"].iloc[0]).days
+
+        if days <= 0:
+            continue
+
+        b_s = (dll_end - dll_start) / days
+        degradation_rates.append(b_s)
+        time_intervals.append(days)
+
+    positive_b_s = [x for x in degradation_rates if x > 0]
+    if len(positive_b_s) == 0:
+        raise ValueError("No positive degradation rates found.")
+
+    log_bs = np.log(positive_b_s)
+    result = anderson(log_bs, dist="norm")
+
+    if result.statistic < result.critical_values[2]:
+        print("b_s values follow a lognormal distribution.")
+        log_mean = np.mean(log_bs)
+        log_std = np.std(log_bs)
+
+        degradation_mean = np.exp(log_mean + 0.5 * log_std**2)
+        degradation_stddev = np.sqrt((np.exp(log_std**2) - 1) * np.exp(2 * log_mean + log_std**2))
     else:
-        print("DLL_s values do not follow a lognormal distribution. Assuming normal distribution.")
-        degradation_mean = np.mean(df["DLL_s"])
-        degradation_stddev = np.std(df["DLL_s"])
+        print("b_s values do not follow a lognormal distribution. Assuming normal.")
+        degradation_mean = np.mean(degradation_rates)
+        degradation_stddev = np.std(degradation_rates)
 
-    print(f"Degradation Mean: {degradation_mean}")
-    print(f"Degradation Stddev: {degradation_stddev}")
-
-    # Get D_0LLs: post-last tamping value
     most_recent_tamping = df[df["Tamping Performed"] == 1].iloc[-1]
     most_recent_index = most_recent_tamping.name
+
     if most_recent_index + 1 < len(df):
         D_0LLs = df.iloc[most_recent_index + 1]["DLL_s"]
     else:
         D_0LLs = most_recent_tamping["DLL_s"]
 
-    print(f"D_0LLs (Initial degradation value after tamping): {D_0LLs}")
+    print(f"Degradation Mean: {degradation_mean}")
+    print(f"Degradation Stddev: {degradation_stddev}")
+    print(f"D_0LLs (Initial DLL_s after last tamping): {D_0LLs}")
 
     return {
         "D_0LLs": D_0LLs,
@@ -193,23 +191,17 @@ def take_in(file_path):
         "degradation_stddev": degradation_stddev,
         "degradation_rates": degradation_rates,
         "time_intervals": time_intervals,
+        "use_lognormal": result.statistic < result.critical_values[2]  
     }
 
 
 def derive_recovery(file_path):
-    """
-    Derives recovery coefficients from historical track data.
-    This version does NOT adjust for natural degradation (use derive_accurate_recovery() for that).
-
-    Returns:
-        dict: Recovery model coefficients and residual stats (mean/std).
-    """
+    # recovery 
     import pandas as pd
     import numpy as np
     from sklearn.linear_model import LinearRegression
     from scipy.stats import anderson
 
-    # === Input Checks ===
     if not isinstance(file_path, str):
         raise ValueError("file_path must be a string path to an Excel file.")
 
@@ -221,7 +213,6 @@ def derive_recovery(file_path):
     if df.empty:
         raise ValueError("The input Excel file is empty.")
 
-    # Normalize DLL_s column
     if "DLL_s" not in df.columns:
         if "A" in df.columns:
             df = df.rename(columns={"A": "DLL_s"})
@@ -230,7 +221,6 @@ def derive_recovery(file_path):
         else:
             raise ValueError("Missing DLL_s column. Expected one of: DLL_s, A, G.")
 
-    # Required columns
     required_columns = ["Date", "DLL_s", "Tamping Performed", "Tamping Type", "Defect"]
     if not all(col in df.columns for col in required_columns):
         raise ValueError(f"Missing one or more required columns: {required_columns}")
@@ -241,12 +231,10 @@ def derive_recovery(file_path):
     if (df["DLL_s"] < 0).any():
         raise ValueError("DLL_s contains negative values, which is not physically valid.")
 
-    # Filter tamping events
     tamping_events = df[df["Tamping Performed"] == 1]
     if len(tamping_events) < 4:
         raise ValueError("Not enough tamping events (min 4 required) for regression.")
 
-    # Recovery effect: DLL_s(before) - DLL_s(after)
     DLL_s_values = df["DLL_s"].values
     R_LL_s = []
     recovery_indices = []
@@ -260,7 +248,6 @@ def derive_recovery(file_path):
     if len(R_LL_s) < 3:
         raise ValueError("Not enough valid recovery pairs for regression (min 3).")
 
-    # Build predictors
     tamping_events = df.loc[recovery_indices]
     X = tamping_events[["DLL_s", "Tamping Type"]].copy()
     X["Tamping Type"] = X["Tamping Type"].map({1: 0, 2: 1})
@@ -268,8 +255,7 @@ def derive_recovery(file_path):
 
     Y = np.array(R_LL_s)
     X = X.values
-
-    # Linear regression
+    
     model = LinearRegression()
     model.fit(X, Y)
 
@@ -282,7 +268,6 @@ def derive_recovery(file_path):
     print(f"β₂ (Tamping Type): {beta_2}")
     print(f"β₃ (Interaction): {beta_3}")
 
-    # Residual analysis
     residuals = Y - model.predict(X)
     ad_test_result = anderson(residuals, dist="norm")
 
@@ -307,19 +292,12 @@ def derive_recovery(file_path):
 
 # This is the true method 
 def derive_accurate_recovery(file_path, bs_values):
-    """
-    Derives adjusted recovery coefficients accounting for degradation during the tamping-to-next interval.
-    Adjusted recovery: R_LL_s + (average_b_s * delta_time)
-
-    Returns:
-        dict: Recovery coefficients and residual stats.
-    """
+    # subtracts degradation between events
     import pandas as pd
     import numpy as np
     from sklearn.linear_model import LinearRegression
     from scipy.stats import anderson
 
-    # === Input Validation ===
     if not isinstance(file_path, str):
         raise ValueError("file_path must be a string to an Excel file.")
 
@@ -338,7 +316,6 @@ def derive_accurate_recovery(file_path, bs_values):
     if df.empty:
         raise ValueError("Input file is empty.")
 
-    # Normalize DLL_s column
     if "DLL_s" not in df.columns:
         if "A" in df.columns:
             df = df.rename(columns={"A": "DLL_s"})
@@ -351,27 +328,23 @@ def derive_accurate_recovery(file_path, bs_values):
     if not all(col in df.columns for col in required_columns):
         raise ValueError(f"Missing one or more required columns: {required_columns}")
 
-    # Ensure valid dates
     try:
         df["Date"] = pd.to_datetime(df["Date"])
     except Exception:
         raise ValueError("Failed to convert 'Date' to datetime format.")
 
-    # Validate DLL_s domain
     if (df["DLL_s"] < 0).any():
         raise ValueError("DLL_s contains negative values.")
 
     if df["DLL_s"].std() < 1e-6:
         raise ValueError("DLL_s has too little variance to train a meaningful model.")
 
-    # Filter tamping rows
     tamping_events = df[df["Tamping Performed"] == 1]
     if len(tamping_events) < 4:
         raise ValueError("Not enough tamping events (min 4 required).")
 
     average_bs = np.mean(bs_values)
 
-    # === Recovery Calculation ===
     DLL_s_values = df["DLL_s"].values
     R_LL_s_adjusted = []
     valid_indices = []
@@ -450,17 +423,10 @@ def derive_accurate_recovery(file_path, bs_values):
 
 
 def derive_defect_probabilities(file_path):
-    """
-    Derives defect classification parameters using ordinal logistic regression.
-
-    Returns:
-        dict: Thresholds (C0, C1), beta, and model pseudo R^2.
-    """
     import pandas as pd
     import numpy as np
     from statsmodels.miscmodels.ordinal_model import OrderedModel
-
-    # === Input Validation ===
+    
     if not isinstance(file_path, str):
         raise ValueError("file_path must be a valid Excel file path.")
 
@@ -472,7 +438,6 @@ def derive_defect_probabilities(file_path):
     if df.empty:
         raise ValueError("Input data file is empty.")
 
-    # DLL_s column remapping
     if "DLL_s" not in df.columns:
         if "A" in df.columns:
             df = df.rename(columns={"A": "DLL_s"})
@@ -481,7 +446,6 @@ def derive_defect_probabilities(file_path):
         else:
             raise ValueError("Missing DLL_s column. Expected one of: DLL_s, A, G.")
 
-    # Required columns
     required_columns = ["Date", "DLL_s", "Tamping Performed", "Tamping Type", "Defect"]
     if not all(col in df.columns for col in required_columns):
         raise ValueError(f"Missing one or more required columns: {required_columns}")
@@ -492,25 +456,22 @@ def derive_defect_probabilities(file_path):
     if (df["DLL_s"] < 0).any():
         raise ValueError("DLL_s contains negative values, which is invalid.")
 
-    # Check for valid defect values
     if "Defect" not in df.columns:
         raise ValueError("Missing 'Defect' column.")
 
     if not set(df["Defect"].unique()).issubset({0, 1, 2}):
         raise ValueError("Defect values must be only 0, 1, or 2.")
 
-    # Ensure all classes are represented
     class_counts = df["Defect"].value_counts()
     if class_counts.min() < 2:
         raise ValueError("One or more defect classes are underrepresented (< 2 samples).")
 
-    # === Ordinal Model Fit ===
     X = df[["DLL_s"]]
     Y = df["Defect"]
 
     try:
         model = OrderedModel(Y, X, distr="logit")
-        results = model.fit(method="bfgs", disp=False)
+        results = model.fit(method="lbfgs", disp=False)
     except Exception as e:
         raise RuntimeError(f"Failed to fit ordinal model: {e}")
 
@@ -519,7 +480,7 @@ def derive_defect_probabilities(file_path):
 
     params = results.params
 
-    threshold_keys = [k for k in params.index if "threshold" in k]
+    threshold_keys = [k for k in params.index if "/" in k or "threshold" in k]    
     if len(threshold_keys) != 2:
         raise ValueError("Expected exactly two thresholds (C0, C1) for 3-class model.")
 
@@ -554,18 +515,7 @@ def derive_defect_probabilities(file_path):
 # print(coefficients)
 
 def degrade(current_DLL_s, b_s, time, e_s):
-    """
-    Models the degradation progression over a time interval.
-
-    Parameters:
-        current_DLL_s (float): Current DLL_s value (≥ 0).
-        b_s (float): Degradation rate (> 0).
-        time (int): Time step (≥ 0).
-        e_s (float): Gaussian error term.
-
-    Returns:
-        float: Updated DLL_s value.
-    """
+    
     if current_DLL_s < 0:
         raise ValueError("current_DLL_s must be ≥ 0.")
 
@@ -582,19 +532,6 @@ def degrade(current_DLL_s, b_s, time, e_s):
     
 
 def recovery(current_DLL_s, recovery_coefficients, tamping_type, re_s_m, re_s_s):
-    """
-    Applies the recovery model to update DLL_s after tamping.
-
-    Parameters:
-        current_DLL_s (float): DLL_s before recovery (≥ 0).
-        recovery_coefficients (dict): Must include alpha_1, beta_1, beta_2, beta_3.
-        tamping_type (int): 0 for partial, 1 for complete.
-        re_s_m (float): Mean of residuals.
-        re_s_s (float): Stddev of residuals.
-
-    Returns:
-        float: Updated DLL_s after recovery.
-    """
     if current_DLL_s < 0:
         raise ValueError("current_DLL_s must be ≥ 0.")
 
@@ -627,16 +564,7 @@ def recovery(current_DLL_s, recovery_coefficients, tamping_type, re_s_m, re_s_s)
     return max(updated, 0)  # DLL_s can't go negative
 
 def defect(current_DLL_s, defect_coefficients):
-    """
-    Calculates defect probabilities based on DLL_s using the logistic ordinal model.
 
-    Parameters:
-        current_DLL_s (float): DLL_s at inspection.
-        defect_coefficients (dict): Must include C0, C1, and beta.
-
-    Returns:
-        dict: Probabilities P1 (no defect), P2 (IL), P3 (IAL).
-    """
     if current_DLL_s < 0:
         raise ValueError("current_DLL_s must be ≥ 0.")
 
@@ -667,13 +595,8 @@ def defect(current_DLL_s, defect_coefficients):
 
 def sim_seg(time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, lognormal_mean, lognormal_stddev,
             e_s_mean, e_s_s, re_s_m, re_s_s, ILL, IALL, RM, RV,
-            recovery_coefficients, defect_coefficients):
-    """
-    Simulates a single segment over the defined time horizon.
+            recovery_coefficients, defect_coefficients, use_lognormal_bs: bool):
 
-    Returns:
-        dict: Final state and counters.
-    """
     if T_insp % T_step != 0 or T_tamp % T_step != 0:
         raise ValueError("T_insp and T_tamp must be multiples of T_step for aligned intervals.")
 
@@ -681,55 +604,59 @@ def sim_seg(time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, lognormal_mean, lo
     tn = 0
     Npm = Ncm_n = Ncm_e = Ninsp = total_response_delay = 0
 
-    b_s = np.random.lognormal(mean=lognormal_mean, sigma=lognormal_stddev)
-    b_s = min(b_s, 5)  # Cap extremely unrealistic b_s
+    if use_lognormal_bs:
+        b_s = np.random.lognormal(mean=lognormal_mean, sigma=lognormal_stddev)
+    else:
+        b_s = np.random.normal(loc=lognormal_mean, scale=lognormal_stddev)
 
     while t <= time_horizon:
         t += T_step
+
         e_s = np.random.normal(e_s_mean, e_s_s)
 
         DLL_s_t = max(D_0LLs + b_s * (t - tn) + e_s, 0)
 
-        pm_done_today = False
+        if t > time_horizon:
+            break  
 
-        # Preventive Maintenance
         if t % T_tamp == 0:
             if DLL_s_t > AL:
-                D_0LLs = recovery(DLL_s_t, recovery_coefficients, 1, re_s_m, re_s_s)
+                D_0LLs = recovery(DLL_s_t, recovery_coefficients, tamping_type=1, re_s_m=re_s_m, re_s_s=re_s_s)
                 Npm += 1
                 tn = t
-                b_s = min(np.random.lognormal(lognormal_mean, lognormal_stddev), 5)
-                pm_done_today = True
 
-        # Corrective Maintenance (on inspection day)
+                b_s = np.random.lognormal(mean=lognormal_mean, sigma=lognormal_stddev) if use_lognormal_bs else \
+                    np.random.normal(loc=lognormal_mean, scale=lognormal_stddev)
+
+                continue 
+
         if t % T_insp == 0:
             Ninsp += 1
-            if not pm_done_today:
-                probabilities = defect(DLL_s_t, defect_coefficients)
-                PIL = probabilities["P2"]
-                PIAL = probabilities["P3"]
 
-                if PIAL > IALL:
-                    D_0LLs = recovery(DLL_s_t, recovery_coefficients, 0, re_s_m, re_s_s)
-                    Ncm_e += 1
-                    tn = t
-                    continue
+            probs = defect(DLL_s_t, defect_coefficients)
+            P2 = probs["P2"]
+            P3 = probs["P3"]
 
-                elif PIL > ILL:
-                    time_to_next_inspection = T_insp - (t % T_insp)
-                    response_time = min(max(0, np.random.normal(loc=RM, scale=RV)), time_to_next_inspection)
+            if P3 > IALL:
+                D_0LLs = recovery(DLL_s_t, recovery_coefficients, tamping_type=0, re_s_m=re_s_m, re_s_s=re_s_s)
+                Ncm_e += 1
+                tn = t
+                continue  
 
-                    response_time = int(response_time)
-                    total_response_delay += response_time
-                    t += response_time
+            if P2 > ILL:
+                response_time = int(np.random.normal(loc=RM, scale=RV))
+                response_time = max(0, response_time)
 
-                    delayed_e_s = np.random.normal(e_s_mean, e_s_s)
-                    DLL_s_t = degrade(DLL_s_t, b_s, response_time, delayed_e_s)
+                total_response_delay += response_time
+                t += response_time
 
-                    D_0LLs = recovery(DLL_s_t, recovery_coefficients, 0, re_s_m, re_s_s)
-                    Ncm_n += 1
-                    tn = t
-                    continue
+                delayed_e_s = np.random.normal(e_s_mean, e_s_s)
+                DLL_s_t = degrade(DLL_s_t, b_s, response_time, delayed_e_s)
+
+                D_0LLs = recovery(DLL_s_t, recovery_coefficients, tamping_type=0, re_s_m=re_s_m, re_s_s=re_s_s)
+                Ncm_n += 1
+                tn = t
+                continue 
 
     return {
         "final_t": t,
@@ -749,16 +676,9 @@ def monte(
     re_s_m, re_s_s, ILL, IALL, RM, RV, num_simulations,
     inspection_cost, preventive_maintenance_cost,
     normal_corrective_maintenance_cost, emergency_corrective_maintenance_cost,
-    recovery_coefficients, defect_coefficients
+    recovery_coefficients, defect_coefficients, use_lognormal_bs: bool
 ):
-    """
-    Monte Carlo simulation to aggregate results for multiple track sections with full validation.
 
-    Raises:
-        ValueError: On any input that violates expected logic or sanity checks.
-    """
-
-    # === Input Validation ===
     if not isinstance(num_simulations, int) or num_simulations < 1:
         raise ValueError("num_simulations must be a positive integer.")
 
@@ -797,7 +717,6 @@ def monte(
     if D_0LLs < 0:
         raise ValueError("D_0LLs must be non-negative (initial DLL_s after tamping).")
 
-    # === Monte Carlo Simulation ===
     total_inspections = 0
     total_pm = 0
     total_cm_n = 0
@@ -809,7 +728,7 @@ def monte(
             time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, degradation_mean,
             degradation_stddev, e_s_mean, e_s_variance, re_s_m, re_s_s,
             ILL, IALL, RM, RV,
-            recovery_coefficients, defect_coefficients
+            recovery_coefficients, defect_coefficients,use_lognormal_bs
         )
 
         inspections = result["Number of inspections"]
@@ -850,26 +769,27 @@ def monte(
     }
 
 def run_full_simulation_on_file(file_path, config):
-    """
-    Executes the full pipeline on a single Excel file and returns results + metadata.
-    """
     try:
-        # Step 1: Degradation extraction
         degradation_info = take_in(file_path)
         D_0LLs = degradation_info["D_0LLs"]
         degradation_mean = np.log(degradation_info["degradation_mean"])
         degradation_stddev = np.sqrt(np.log(1 + (degradation_info["degradation_stddev"] / degradation_info["degradation_mean"])**2))
+        use_lognormal = degradation_info["use_lognormal"]
+        
+        if use_lognormal:
+            degradation_mean = np.log(degradation_info["degradation_mean"])
+            degradation_stddev = np.sqrt(np.log(1 + (degradation_info["degradation_stddev"] / degradation_info["degradation_mean"])**2))
+        else:
+            degradation_mean = degradation_info["degradation_mean"]
+            degradation_stddev = degradation_info["degradation_stddev"]        
 
-        # Step 2: Recovery model
         if config.get("use_accurate_recovery", 1):
             recovery_model = derive_accurate_recovery(file_path, degradation_info["degradation_rates"])
         else:
             recovery_model = derive_recovery(file_path)
 
-        # Step 3: Defect model
         defect_model = derive_defect_probabilities(file_path)
 
-        # Step 4: Simulation
         results = monte(
             time_horizon=config["time_horizon"],
             T_insp=config["T_insp"],
@@ -893,12 +813,14 @@ def run_full_simulation_on_file(file_path, config):
             normal_corrective_maintenance_cost=config["normal_corrective_maintenance_cost"],
             emergency_corrective_maintenance_cost=config["emergency_corrective_maintenance_cost"],
             recovery_coefficients=recovery_model,
-            defect_coefficients=defect_model
+            defect_coefficients=defect_model,
+            use_lognormal_bs=use_lognormal
         )
 
         results.update({
             "file": file_path,
             "used_accurate_recovery": bool(config.get("use_accurate_recovery", 1)),
+            "used_lognormal_bs": use_lognormal,
             "recovery_coefficients": recovery_model,
             "defect_coefficients": defect_model
         })
@@ -912,86 +834,109 @@ def run_full_simulation_on_file(file_path, config):
             "status": "failed"
         }
     
-simulation_config = {
-    # === Core Simulation Control ===
-    
-    "use_accurate_recovery": 1,         # 1 = Use degradation-adjusted recovery model, 0 = Use simple recovery
-
-    "time_horizon": 3650,              # Total number of days to simulate (e.g., 10 years)
-    "T_insp": 30,                      # Inspection interval in days
-    "T_tamp": 90,                      # Scheduled tamping interval in days
-    "T_step": 1,                       # Time step for simulation loop (should usually be 1)
-
-    # === Maintenance Triggers ===
-
-    "AL": 4.5,                         # DLL_s alert limit (for preventive maintenance)
-    "ILL": 0.25,                       # Intermediate Defect Probability Threshold
-    "IALL": 0.05,                      # Severe Defect Probability Threshold
-
-    # === Response Dynamics ===
-
-    "RM": 10,                          # Mean delay (in days) to respond to intermediate-level defects
-    "RV": 5,                           # Variance of the above response delay
-
-    # === Simulation Volume ===
-
-    "num_simulations": 100,           # Number of independent Monte Carlo simulations per section
-
-    # === Cost Modeling ===
-
-    "inspection_cost": 100,                      # Cost per inspection
-    "preventive_maintenance_cost": 200,          # Cost of preventive tamping
-    "normal_corrective_maintenance_cost": 500,   # Cost of corrective maintenance for ILL class
-    "emergency_corrective_maintenance_cost": 1000 # Cost for emergency response (IALL)
-}
-
 def run_simulations_on_batch(file_paths, config):
-    """
-    Runs the full simulation pipeline on multiple Excel files.
+# global version, batches files together, learns on all of them
+    # still individual seg analysis 
+    import pandas as pd
+    from pathlib import Path
 
-    Parameters:
-        file_paths (list of str): Paths to Excel files.
-        config (dict): Simulation configuration shared across files.
+    all_data = []
+    dll_starts = {}
 
-    Returns:
-        list of dicts: Individual simulation results per file.
-    """
+    for fp in file_paths:
+        try:
+            df = pd.read_excel(fp)
+            df["source_file"] = Path(fp).name
+            all_data.append(df)
+
+            deg_info = take_in(fp)
+            dll_starts[fp] = deg_info["D_0LLs"]
+        except Exception as e:
+            print(f"[!] Skipping {fp}: {e}")
+
+    if not all_data:
+        raise ValueError("No valid input files provided.")
+
+    global_df = pd.concat(all_data, ignore_index=True)
+
+    print("Training global degradation model...")
+    global_deg_info = take_in_from_df(global_df)
+    use_lognormal = global_deg_info["use_lognormal"]
+
+    if use_lognormal:
+        degradation_mean = np.log(global_deg_info["degradation_mean"])
+        degradation_stddev = np.sqrt(np.log(1 + (global_deg_info["degradation_stddev"] / global_deg_info["degradation_mean"])**2))
+    else:
+        degradation_mean = global_deg_info["degradation_mean"]
+        degradation_stddev = global_deg_info["degradation_stddev"]
+
+    print("Training global recovery model...")
+    if config.get("use_accurate_recovery", 1):
+        recovery_model = derive_accurate_recovery_from_df(global_df, global_deg_info["degradation_rates"])
+    else:
+        recovery_model = derive_recovery_from_df(global_df)
+
+    print("Training global defect model...")
+    defect_model = derive_defect_probabilities_from_df(global_df)
+
     results = []
     for path in file_paths:
-        print(f"Processing: {path}")
-        result = run_full_simulation_on_file(path, config)
-        results.append(result)
+        try:
+            print(f"Simulating: {path}")
+            result = monte(
+                time_horizon=config["time_horizon"],
+                T_insp=config["T_insp"],
+                T_tamp=config["T_tamp"],
+                T_step=config["T_step"],
+                AL=config["AL"],
+                D_0LLs=dll_starts[path],
+                degradation_mean=degradation_mean,
+                degradation_stddev=degradation_stddev,
+                e_s_mean=0.0,
+                e_s_variance=0.01,
+                re_s_m=recovery_model["e_s_mean"],
+                re_s_s=recovery_model["e_s_stddev"],
+                ILL=config["ILL"],
+                IALL=config["IALL"],
+                RM=config["RM"],
+                RV=config["RV"],
+                num_simulations=config["num_simulations"],
+                inspection_cost=config["inspection_cost"],
+                preventive_maintenance_cost=config["preventive_maintenance_cost"],
+                normal_corrective_maintenance_cost=config["normal_corrective_maintenance_cost"],
+                emergency_corrective_maintenance_cost=config["emergency_corrective_maintenance_cost"],
+                recovery_coefficients=recovery_model,
+                defect_coefficients=defect_model,
+                use_lognormal_bs=use_lognormal
+            )
+
+            result.update({
+                "file": path,
+                "used_accurate_recovery": bool(config.get("use_accurate_recovery", 1)),
+                "used_lognormal_bs": use_lognormal,
+                "recovery_coefficients": recovery_model,
+                "defect_coefficients": defect_model
+            })
+            results.append(result)
+        except Exception as e:
+            results.append({"file": path, "error": str(e), "status": "failed"})
+
     return results
 
 def standardize_output(results, config, file_name=None, recovery_coeffs=None, defect_coeffs=None):
-    """
-    Merges config + results + metadata into a flat structure.
-
-    Parameters:
-        results (dict): Output from the monte() function
-        config (dict): Input config used for simulation
-        file_name (str): Optional name of the Excel file used
-        recovery_coeffs (dict): Recovery coefficients used
-        defect_coeffs (dict): Defect coefficients used
-
-    Returns:
-        dict: Fully flattened and labeled for export.
-    """
     output = {
         "file": file_name if file_name else "user_defined",
+        "used_lognormal_bs": results.get("used_lognormal_bs", True),
         "used_accurate_recovery": bool(config.get("use_accurate_recovery", 1)),
     }
 
-    # Merge simulation config
     output.update({f"param_{k}": v for k, v in config.items()})
 
-    # Merge model coefficients
     if recovery_coeffs:
         output.update({f"recovery_{k}": v for k, v in recovery_coeffs.items()})
     if defect_coeffs:
         output.update({f"defect_{k}": v for k, v in defect_coeffs.items()})
 
-    # Merge simulation results
     output.update({f"result_{k}": v for k, v in results.items() if k != "file"})
 
     return output
@@ -1001,41 +946,32 @@ def export_results_to_excel(results_list, output_path=None, sheet_names=None):
     import pandas as pd
     from pathlib import Path
     from datetime import datetime    
-    """
-    Exports a list of standardized simulation result dictionaries to an Excel file.
 
-    Parameters:
-        results_list (list of dict): Each dict represents one full simulation result from `standardize_output()`.
-        output_path (str, optional): Path to write Excel file. If None, a timestamped name is generated.
-        sheet_names (list of str, optional): Sheet names for each result. If None, defaults to "Run_1", "Run_2", ...
-
-    Returns:
-        str: Path to the written Excel file (can be used to fetch or download later).
-    """
-    # Default sheet names if not provided
     if sheet_names is None:
         sheet_names = [f"Run_{i+1}" for i in range(len(results_list))]
 
-    # Auto-generate filename if not provided
     if output_path is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_path = f"simulation_results_{timestamp}.xlsx"
 
     output_path = Path(output_path)
 
-    # Write to Excel
+    all_rows = pd.DataFrame(results_list)
+
     with pd.ExcelWriter(output_path, engine='xlsxwriter') as writer:
         for result, sheet_name in zip(results_list, sheet_names):
-            df = pd.DataFrame([result])  # One row per sheet
+            df = pd.DataFrame([result])
             df.T.reset_index().to_excel(writer, sheet_name=sheet_name, index=False, header=["Field", "Value"])
 
-    print(f"[✓] Exported simulation results to: {output_path}")
+        numeric_cols = all_rows.select_dtypes(include="number").columns
+        summary_df = all_rows[numeric_cols].mean().reset_index()
+        summary_df.columns = ["Metric", "Average"]
+        summary_df.to_excel(writer, sheet_name="Summary", index=False)
+
+    print(f"Exported simulation results + summary to: {output_path}")
     return str(output_path)
 
 def run_full_simulation_on_file_with_export(file_path, config, output_path=None):
-    """
-    Full run on one file, including export.
-    """
     result = run_full_simulation_on_file(file_path, config)
 
     if "error" not in result:
@@ -1048,14 +984,12 @@ def run_full_simulation_on_file_with_export(file_path, config, output_path=None)
         )
         export_results_to_excel([standardized], output_path=output_path)
     else:
-        print(f"[✗] Simulation failed: {result['error']}")
+        print(f"Simulation failed: {result['error']}")
 
     return result
 
 def run_simulations_on_batch_with_export(file_paths, config, output_path=None):
-    """
-    Batch run across multiple files, with consolidated export.
-    """
+# global 
     results = run_simulations_on_batch(file_paths, config)
     export_ready = []
 
@@ -1070,31 +1004,17 @@ def run_simulations_on_batch_with_export(file_paths, config, output_path=None):
             )
             export_ready.append(standardized)
         else:
-            print(f"[!] Skipping export for failed file: {res['file']} — {res['error']}")
+            print(f"Skipping export for failed file: {res['file']} — {res['error']}")
 
     if export_ready:
         export_results_to_excel(export_ready, output_path=output_path)
     else:
-        print("[!] No successful results to export.")
+        print("No successful results to export.")
 
     return results
 
-def run_manual_monte_with_export(config, recovery_coeffs, defect_coeffs, D_0LLs, output_path=None, label=None):
-    """
-    Executes a standalone Monte Carlo run without data analysis,
-    using fully user-specified coefficients and inputs.
 
-    Parameters:
-        config (dict): Simulation settings and parameters
-        recovery_coeffs (dict): Recovery model coefficients
-        defect_coeffs (dict): Defect model coefficients
-        D_0LLs (float): Initial post-tamping DLL_s value
-        output_path (str, optional): Path to save Excel output
-        label (str, optional): Label for identifying run in output
-
-    Returns:
-        dict: Simulation results
-    """
+def run_manual_monte_with_export(use_lognormal_bs, config, recovery_coeffs, defect_coeffs, D_0LLs, output_path=None, label=None):
     try:
         degradation_mean = config.get("degradation_mean")
         degradation_stddev = config.get("degradation_stddev")
@@ -1125,10 +1045,10 @@ def run_manual_monte_with_export(config, recovery_coeffs, defect_coeffs, D_0LLs,
             normal_corrective_maintenance_cost=config["normal_corrective_maintenance_cost"],
             emergency_corrective_maintenance_cost=config["emergency_corrective_maintenance_cost"],
             recovery_coefficients=recovery_coeffs,
-            defect_coefficients=defect_coeffs
+            defect_coefficients=defect_coeffs,
+            use_lognormal_bs = use_lognormal_bs
         )
 
-        # === Bundle Output
         standardized = standardize_output(
             results=results,
             config=config,
@@ -1141,38 +1061,19 @@ def run_manual_monte_with_export(config, recovery_coeffs, defect_coeffs, D_0LLs,
         return results
 
     except Exception as e:
-        print(f"[✗] Manual Monte run failed: {e}")
+        print(f"Manual Monte run failed: {e}")
         return {"error": str(e)}
 
 def analyze_file_only(file_path):
-    """
-    Runs data analysis (degradation, recovery, defect model) on a single Excel file,
-    without performing any simulations.
-
-    Parameters:
-        file_path (str): Path to Excel file.
-
-    Returns:
-        dict: {
-            'file': str,
-            'D_0LLs': float,
-            'degradation_mean': float,
-            'degradation_stddev': float,
-            'degradation_rates': list,
-            'time_intervals': list,
-            'recovery_model': dict,
-            'defect_model': dict
-        }
-    """
     try:
         degradation_info = take_in(file_path)
         D_0LLs = degradation_info["D_0LLs"]
         degradation_mean = np.log(degradation_info["degradation_mean"])
         degradation_stddev = np.sqrt(np.log(1 + (degradation_info["degradation_stddev"] / degradation_info["degradation_mean"])**2))
 
-        # Prefer accurate recovery by default
         recovery_model = derive_accurate_recovery(file_path, degradation_info["degradation_rates"])
         defect_model = derive_defect_probabilities(file_path)
+             
 
         return {
             "file": file_path,
@@ -1195,71 +1096,94 @@ def analyze_file_only(file_path):
 def analyze_files_only(file_paths):
     return [analyze_file_only(path) for path in file_paths]
 
-
-
-"""
-# SAMPLE RUN, ONE TRACK, 5 YEARS
-
-result = sim_seg(
-     time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, degradation_mean,
-     degradation_stddev,e_s_mean, e_s_variance, re_s_m, re_s_s, ILL, IALL, RM, RV
- )
-print(result)
-"""
-
-"""
-# MONTE CARLO SIM, ONE TRACK, 5 YEARS
-num_simulations = 100  # Number of Monte Carlo simulations
-result = monte(
-    time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, degradation_mean,
-    degradation_stddev,e_s_mean, e_s_variance, re_s_m, re_s_s, ILL, IALL, RM, RV,
-    num_simulations=num_simulations,
-    inspection_cost=240,
-    preventive_maintenance_cost=5000,
-    normal_corrective_maintenance_cost=11000,
-    emergency_corrective_maintenance_cost=40000
-)
-print(result)
-"""
-
 from pathlib import Path
 
-# Build config dict
 manual_config = {
-    "time_horizon": 5475,          # 15 years
-    "T_insp": 90,                  # Inspection every 3 months
-    "T_tamp": 365,                 # PM every year
+    "time_horizon": 5475,         
+    "T_insp": 90,                  
+    "T_tamp": 60,                 
     "T_step": 1,
-    "AL": 2.2,                     # More relaxed preventive limit
-    "ILL": 0.4,                    # Moderate CM trigger
-    "IALL": 0.15,                  # Higher emergency threshold
-    "RM": 35,                      # Response delay (same)
+    "AL": 1.3,                    
+    "ILL": 0.75,                   
+    "IALL": 0.05,                  
+    "RM": 35,                      
     "RV": 7,
-    "num_simulations": 1000,
+    "num_simulations": 10000,
     "inspection_cost": 240,
     "preventive_maintenance_cost": 3500,
     "normal_corrective_maintenance_cost": 11000,
     "emergency_corrective_maintenance_cost": 40000,
-    "degradation_mean": -2.379,
-    "degradation_stddev": 0.756
+    "degradation_mean": -5.11,
+    "degradation_stddev": 0.75
 }
 
-# Clean up defect coefficients for compatibility with expected keys
-defect_coefficients_clean = {
-    "C0": defect_coefficients["C0"],
-    "C1": defect_coefficients["C1"],
-    "beta": defect_coefficients["b"]
+
+
+config = {
+    "use_accurate_recovery": 1,         # Use degradation-aware recovery model
+    "time_horizon": 5475,               # 15 years
+    "T_insp": 90,                       # Inspection every 3 months
+    "T_tamp": 60,                       # Preventive maintenance every 2 months
+    "T_step": 1,
+    "AL": 1.3,                          # Alert limit for PM
+    "ILL": 0.4,                        # Prob. threshold for normal CM
+    "IALL": 0.05,                       # Prob. threshold for emergency CM
+    "RM": 35,                           # Response mean delay
+    "RV": 7,                            # Response std delay
+    "num_simulations": 10000,          # Number of Monte Carlo runs
+    "inspection_cost": 240,
+    "preventive_maintenance_cost": 3500,
+    "normal_corrective_maintenance_cost": 11000,
+    "emergency_corrective_maintenance_cost": 40000
 }
 
-# Run it
-result = run_manual_monte_with_export(
-    config=manual_config,
-    recovery_coeffs={
-        **recovery_coefficients,
-        "e_s_mean": e_LL_mean,
-        "e_s_stddev": e_LL_variance
+
+def collect_excel_files(directory_path):
+    dir_path = Path(directory_path)
+    if not dir_path.exists() or not dir_path.is_dir():
+        raise ValueError(f"[✗] Directory not found or invalid: {directory_path}")
+
+    excel_files = list(dir_path.glob("*.xlsx"))
+    if not excel_files:
+        raise ValueError(f"[!] No Excel (.xlsx) files found in: {directory_path}")
+
+    return [str(file) for file in excel_files]
+
+
+result = monte(
+    time_horizon=15 * 365,
+    T_insp=120,
+    T_tamp=365,
+    T_step=1,
+    AL=1.5,
+    D_0LLs=0.352,
+    degradation_mean=-2.379,
+    degradation_stddev=0.756,
+    e_s_mean=0.0,
+    e_s_variance=np.sqrt(0.041),
+    re_s_m=0.0,
+    re_s_s=np.sqrt(0.15),
+    ILL=0.75,
+    IALL=0.05,
+    RM=35,
+    RV=7,
+    num_simulations=10000,
+    inspection_cost=240,
+    preventive_maintenance_cost=5000,
+    normal_corrective_maintenance_cost=11000,
+    emergency_corrective_maintenance_cost=40000,
+    recovery_coefficients={
+        "alpha_1": -0.269,
+        "beta_1": 0.51,
+        "beta_2": 0.207,
+        "beta_3": -0.043
     },
-    defect_coeffs=defect_coefficients_clean,
-    D_0LLs=D_0LLs,
-    label="manual_sim_test"  # Optional, just helps identify the run
+    defect_coefficients={
+        "C0": 9.1875,
+        "C1": 13.39,
+        "beta": -4.7712
+    },
+    use_lognormal_bs=True
 )
+
+print(result)
