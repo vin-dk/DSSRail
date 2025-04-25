@@ -318,6 +318,7 @@ def derive_global_defect_probabilities(file_paths):
             if df.empty:
                 continue
 
+            # Rename DLL_s if needed
             if "DLL_s" not in df.columns:
                 if "A" in df.columns:
                     df = df.rename(columns={"A": "DLL_s"})
@@ -357,33 +358,10 @@ def derive_global_defect_probabilities(file_paths):
     if not results.mle_retvals.get("converged", False):
         raise RuntimeError("Global defect model did not converge.")
 
-    params = results.params
-    threshold_keys = [k for k in params.index if "/" in k or "threshold" in k]
-
-    if len(threshold_keys) != 2:
-        raise ValueError("Expected two thresholds (C0, C1) for 3-class model.")
-
-    thresholds = {k: params[k] for k in sorted(threshold_keys)}
-    C0 = thresholds[sorted(threshold_keys)[0]]
-    C1 = thresholds[sorted(threshold_keys)[1]]
-
-    if "DLL_s" not in params:
-        raise ValueError("Missing DLL_s coefficient in global defect model.")
-
-    beta = params["DLL_s"]
-    prsquared = results.prsquared
-
     print("Global defect model trained.")
-    print(f"Thresholds: C₀={C0:.3f}, C₁={C1:.3f}")
-    print(f"β (DLL_s): {beta:.3f}")
-    print(f"Pseudo R²: {prsquared:.3f}")
+    print(results.summary())
 
-    return {
-        "C0": C0,
-        "C1": C1,
-        "beta": beta,
-        "goodness_of_fit": prsquared
-    }
+    return results  # Return full model object
     
 
 def take_in(file_path):
@@ -448,14 +426,14 @@ def take_in(file_path):
     result = anderson(log_bs, dist="norm")
 
     if result.statistic < result.critical_values[2]:
-        print("b_s values follow a lognormal distribution.")
+        # print("b_s values follow a lognormal distribution.")
         log_mean = np.mean(log_bs)
         log_std = np.std(log_bs)
 
         degradation_mean = np.exp(log_mean + 0.5 * log_std**2)
         degradation_stddev = np.sqrt((np.exp(log_std**2) - 1) * np.exp(2 * log_mean + log_std**2))
     else:
-        print("b_s values do not follow a lognormal distribution. Assuming normal.")
+        # print("b_s values do not follow a lognormal distribution. Assuming normal.")
         degradation_mean = np.mean(degradation_rates)
         degradation_stddev = np.std(degradation_rates)
 
@@ -467,9 +445,9 @@ def take_in(file_path):
     else:
         D_0LLs = most_recent_tamping["DLL_s"]
 
-    print(f"Degradation Mean: {degradation_mean}")
-    print(f"Degradation Stddev: {degradation_stddev}")
-    print(f"D_0LLs (Initial DLL_s after last tamping): {D_0LLs}")
+    # print(f"Degradation Mean: {degradation_mean}")
+    # print(f"Degradation Stddev: {degradation_stddev}")
+    # print(f"D_0LLs (Initial DLL_s after last tamping): {D_0LLs}")
 
     return {
         "D_0LLs": D_0LLs,
@@ -548,11 +526,11 @@ def derive_recovery(file_path):
     alpha_1 = model.intercept_
     beta_1, beta_2, beta_3 = model.coef_
 
-    print(f"Derived Recovery Coefficients:")
-    print(f"α₁ (Intercept): {alpha_1}")
-    print(f"β₁ (DLL_s): {beta_1}")
-    print(f"β₂ (Tamping Type): {beta_2}")
-    print(f"β₃ (Interaction): {beta_3}")
+    # print(f"Derived Recovery Coefficients:")
+    # print(f"α₁ (Intercept): {alpha_1}")
+    # print(f"β₁ (DLL_s): {beta_1}")
+    # print(f"β₂ (Tamping Type): {beta_2}")
+    # print(f"β₃ (Interaction): {beta_3}")
 
     residuals = Y - model.predict(X)
     ad_test_result = anderson(residuals, dist="norm")
@@ -560,9 +538,9 @@ def derive_recovery(file_path):
     if ad_test_result.statistic < ad_test_result.critical_values[2]:
         residual_mean = np.mean(residuals)
         residual_stddev = np.std(residuals)
-        print("Residuals follow normal distribution.")
+        # print("Residuals follow normal distribution.")
     else:
-        print("Residuals DO NOT follow a normal distribution. Simulation will still proceed.")
+        # print("Residuals DO NOT follow a normal distribution. Simulation will still proceed.")
         residual_mean = np.mean(residuals)
         residual_stddev = np.std(residuals)
 
@@ -674,11 +652,11 @@ def derive_accurate_recovery(file_path, bs_values):
     alpha_1 = model.intercept_
     beta_1, beta_2, beta_3 = model.coef_
 
-    print("Derived Accurate Recovery Coefficients:")
-    print(f"α₁ (Intercept): {alpha_1}")
-    print(f"β₁ (DLL_s): {beta_1}")
-    print(f"β₂ (Tamping Type): {beta_2}")
-    print(f"β₃ (Interaction): {beta_3}")
+    # print("Derived Accurate Recovery Coefficients:")
+    # print(f"α₁ (Intercept): {alpha_1}")
+    # print(f"β₁ (DLL_s): {beta_1}")
+    # print(f"β₂ (Tamping Type): {beta_2}")
+    # print(f"β₃ (Interaction): {beta_3}")
 
     residuals = Y - model.predict(X)
     ad_test_result = anderson(residuals, dist="norm")
@@ -686,9 +664,9 @@ def derive_accurate_recovery(file_path, bs_values):
     if ad_test_result.statistic < ad_test_result.critical_values[2]:
         residual_mean = np.mean(residuals)
         residual_stddev = np.std(residuals)
-        print("Residuals follow normal distribution.")
+        # print("Residuals follow normal distribution.")
     else:
-        print("Residuals do NOT follow normal distribution. Using estimated mean/std anyway.")
+        # print("Residuals do NOT follow normal distribution. Using estimated mean/std anyway.")
         residual_mean = np.mean(residuals)
         residual_stddev = np.std(residuals)
 
@@ -712,7 +690,7 @@ def derive_defect_probabilities(file_path):
     import pandas as pd
     import numpy as np
     from statsmodels.miscmodels.ordinal_model import OrderedModel
-    
+
     if not isinstance(file_path, str):
         raise ValueError("file_path must be a valid Excel file path.")
 
@@ -764,34 +742,10 @@ def derive_defect_probabilities(file_path):
     if not results.mle_retvals.get("converged", False):
         raise RuntimeError("Ordinal model did not converge.")
 
-    params = results.params
+    print("Derived Defect Probability Parameters (via model object):")
+    print(results.summary())
 
-    threshold_keys = [k for k in params.index if "/" in k or "threshold" in k]    
-    if len(threshold_keys) != 2:
-        raise ValueError("Expected exactly two thresholds (C0, C1) for 3-class model.")
-
-    thresholds = {k: params[k] for k in sorted(threshold_keys)}
-    C0 = thresholds[sorted(threshold_keys)[0]]
-    C1 = thresholds[sorted(threshold_keys)[1]]
-
-    if "DLL_s" not in params:
-        raise ValueError("Model did not estimate DLL_s coefficient.")
-
-    beta = params["DLL_s"]
-    prsquared = results.prsquared
-
-    print("Derived Defect Probability Parameters:")
-    print(f"C₀ (0 vs 1): {C0}")
-    print(f"C₁ (1 vs 2): {C1}")
-    print(f"β (DLL_s): {beta}")
-    print(f"Pseudo R²: {prsquared}")
-
-    return {
-        "C0": C0,
-        "C1": C1,
-        "beta": beta,
-        "goodness_of_fit": prsquared
-    }
+    return results  
 
 # Example 
 # coefficients = derive_defect_probabilities("mock_data_file.xlsx")
@@ -846,39 +800,37 @@ def recovery(current_DLL_s, recovery_coefficients, tamping_type, re_s_m, re_s_s)
     updated = current_DLL_s - R_LL_s
     return max(updated, 0)  # DLL_s can't go negative
 
-def defect(current_DLL_s, defect_coefficients):
+def defect(current_DLL_s, defect_model):
+    import pandas as pd
+    import numpy as np
 
     if current_DLL_s < 0:
         raise ValueError("current_DLL_s must be ≥ 0.")
 
-    required_keys = {"C0", "C1", "beta"}
-    if not required_keys.issubset(set(defect_coefficients)):
-        raise ValueError(f"defect_coefficients must contain: {required_keys}")
+    if defect_model is None or not hasattr(defect_model, 'predict'):
+        raise ValueError("Invalid defect model provided. Expected a trained OrderedModelResults object.")
 
-    C0 = defect_coefficients["C0"]
-    C1 = defect_coefficients["C1"]
-    b = defect_coefficients["beta"]
+    try:
+        X = pd.DataFrame({"DLL_s": [current_DLL_s]})
+        preds = defect_model.predict(X)
 
-    if not all(np.isfinite(val) for val in [C0, C1, b]):
-        raise ValueError("All coefficients must be finite numbers.")
+        # The result is a DataFrame with columns [0, 1, 2] for classes
+        pred_row = preds.iloc[0]
 
-    P_leq_1 = np.exp(C0 + b * current_DLL_s) / (1 + np.exp(C0 + b * current_DLL_s))
-    P_leq_2 = np.exp(C1 + b * current_DLL_s) / (1 + np.exp(C1 + b * current_DLL_s))
+        return {
+            "P0": pred_row.get(0, 0.0),
+            "P1": pred_row.get(1, 0.0),
+            "P2": pred_row.get(2, 0.0)
+        }
 
-    P1 = P_leq_1
-    P2 = P_leq_2 - P_leq_1
-    P3 = 1 - P1 - P2
-
-    if any(p < 0 or p > 1 for p in [P1, P2, P3]) or not np.isclose(P1 + P2 + P3, 1, atol=1e-4):
-        raise ValueError("Calculated probabilities are not valid.")
-
-    return {"P1": P1, "P2": P2, "P3": P3}
+    except Exception as e:
+        raise RuntimeError(f"Failed to compute defect probabilities: {e}")
 
 
 
 def sim_seg(time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, lognormal_mean, lognormal_stddev,
             e_s_mean, e_s_s, re_s_m, re_s_s, ILL, IALL, RM, RV,
-            recovery_coefficients, defect_coefficients, use_lognormal_bs: bool):
+            recovery_coefficients, defect_model, use_lognormal_bs: bool):
 
     if T_insp % T_step != 0 or T_tamp % T_step != 0:
         raise ValueError("T_insp and T_tamp must be multiples of T_step for aligned intervals.")
@@ -887,6 +839,7 @@ def sim_seg(time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, lognormal_mean, lo
     tn = 0
     Npm = Ncm_n = Ncm_e = Ninsp = total_response_delay = 0
 
+    # Sample initial degradation rate
     if use_lognormal_bs:
         b_s = np.random.lognormal(mean=lognormal_mean, sigma=lognormal_stddev)
     else:
@@ -894,42 +847,39 @@ def sim_seg(time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, lognormal_mean, lo
 
     while t <= time_horizon:
         t += T_step
-
         e_s = np.random.normal(e_s_mean, e_s_s)
-
         DLL_s_t = max(D_0LLs + b_s * (t - tn) + e_s, 0)
 
         if t > time_horizon:
-            break  
+            break
 
-        if t % T_tamp == 0:
-            if DLL_s_t > AL:
-                D_0LLs = recovery(DLL_s_t, recovery_coefficients, tamping_type=1, re_s_m=re_s_m, re_s_s=re_s_s)
-                Npm += 1
-                tn = t
+        # Preventive maintenance decision
+        if t % T_tamp == 0 and DLL_s_t > AL:
+            D_0LLs = recovery(DLL_s_t, recovery_coefficients, tamping_type=1, re_s_m=re_s_m, re_s_s=re_s_s)
+            Npm += 1
+            tn = t
+            b_s = np.random.lognormal(mean=lognormal_mean, sigma=lognormal_stddev) if use_lognormal_bs else \
+                np.random.normal(loc=lognormal_mean, scale=lognormal_stddev)
+            continue
 
-                b_s = np.random.lognormal(mean=lognormal_mean, sigma=lognormal_stddev) if use_lognormal_bs else \
-                    np.random.normal(loc=lognormal_mean, scale=lognormal_stddev)
-
-                continue 
-
+        # Inspection event
         if t % T_insp == 0:
             Ninsp += 1
-
-            probs = defect(DLL_s_t, defect_coefficients)
+            probs = defect(DLL_s_t, defect_model)  # <- pass full model now
             P2 = probs["P2"]
             P3 = probs["P3"]
 
+            # Emergency corrective
             if P3 > IALL:
                 D_0LLs = recovery(DLL_s_t, recovery_coefficients, tamping_type=0, re_s_m=re_s_m, re_s_s=re_s_s)
                 Ncm_e += 1
                 tn = t
-                continue  
+                continue
 
+            # Normal corrective
             if P2 > ILL:
                 response_time = int(np.random.normal(loc=RM, scale=RV))
                 response_time = max(0, response_time)
-
                 total_response_delay += response_time
                 t += response_time
 
@@ -939,7 +889,7 @@ def sim_seg(time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, lognormal_mean, lo
                 D_0LLs = recovery(DLL_s_t, recovery_coefficients, tamping_type=0, re_s_m=re_s_m, re_s_s=re_s_s)
                 Ncm_n += 1
                 tn = t
-                continue 
+                continue
 
     return {
         "final_t": t,
@@ -959,7 +909,7 @@ def monte(
     re_s_m, re_s_s, ILL, IALL, RM, RV, num_simulations,
     inspection_cost, preventive_maintenance_cost,
     normal_corrective_maintenance_cost, emergency_corrective_maintenance_cost,
-    recovery_coefficients, defect_coefficients, use_lognormal_bs: bool
+    recovery_coefficients, defect_model, use_lognormal_bs: bool
 ):
 
     if not isinstance(num_simulations, int) or num_simulations < 1:
@@ -1011,7 +961,8 @@ def monte(
             time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, degradation_mean,
             degradation_stddev, e_s_mean, e_s_variance, re_s_m, re_s_s,
             ILL, IALL, RM, RV,
-            recovery_coefficients, defect_coefficients,use_lognormal_bs
+            recovery_coefficients, defect_model,  # ← pass model directly
+            use_lognormal_bs
         )
 
         inspections = result["Number of inspections"]
@@ -1056,16 +1007,13 @@ def run_full_simulation_on_file(file_path, config):
     try:
         degradation_info = take_in(file_path)
         D_0LLs = degradation_info["D_0LLs"]
-        degradation_mean = np.log(degradation_info["degradation_mean"])
-        degradation_stddev = np.sqrt(np.log(1 + (degradation_info["degradation_stddev"] / degradation_info["degradation_mean"])**2))
-        use_lognormal = degradation_info["use_lognormal"]
-        
-        if use_lognormal:
+
+        if degradation_info["use_lognormal"]:
             degradation_mean = np.log(degradation_info["degradation_mean"])
             degradation_stddev = np.sqrt(np.log(1 + (degradation_info["degradation_stddev"] / degradation_info["degradation_mean"])**2))
         else:
             degradation_mean = degradation_info["degradation_mean"]
-            degradation_stddev = degradation_info["degradation_stddev"]        
+            degradation_stddev = degradation_info["degradation_stddev"]
 
         if config.get("use_accurate_recovery", 1):
             recovery_model = derive_accurate_recovery(file_path, degradation_info["degradation_rates"])
@@ -1097,14 +1045,14 @@ def run_full_simulation_on_file(file_path, config):
             normal_corrective_maintenance_cost=config["normal_corrective_maintenance_cost"],
             emergency_corrective_maintenance_cost=config["emergency_corrective_maintenance_cost"],
             recovery_coefficients=recovery_model,
-            defect_coefficients=defect_model,
-            use_lognormal_bs=use_lognormal
+            defect_model=defect_model,  # << updated key
+            use_lognormal_bs=degradation_info["use_lognormal"]
         )
 
         results.update({
             "file": file_path,
             "used_accurate_recovery": bool(config.get("use_accurate_recovery", 1)),
-            "used_lognormal_bs": use_lognormal,
+            "used_lognormal_bs": degradation_info["use_lognormal"],
             "recovery_coefficients": recovery_model,
             "defect_coefficients": defect_model
         })
@@ -1137,7 +1085,7 @@ def run_simulations_on_batch(file_paths, config):
     print("Training global degradation model...")
     deg_model = derive_global_degradation(file_paths)
     use_lognormal = deg_model["use_lognormal"]
-    
+
     if use_lognormal:
         degradation_mean = np.log(deg_model["degradation_mean"])
         degradation_stddev = np.sqrt(np.log(1 + (deg_model["degradation_stddev"] / deg_model["degradation_mean"])**2))
@@ -1181,7 +1129,7 @@ def run_simulations_on_batch(file_paths, config):
                 normal_corrective_maintenance_cost=config["normal_corrective_maintenance_cost"],
                 emergency_corrective_maintenance_cost=config["emergency_corrective_maintenance_cost"],
                 recovery_coefficients=recovery_model,
-                defect_coefficients=defect_model,
+                defect_model=defect_model,  # << FIXED KEY
                 use_lognormal_bs=use_lognormal
             )
 
@@ -1190,8 +1138,9 @@ def run_simulations_on_batch(file_paths, config):
                 "used_accurate_recovery": bool(config.get("use_accurate_recovery", 1)),
                 "used_lognormal_bs": use_lognormal,
                 "recovery_coefficients": recovery_model,
-                "defect_coefficients": defect_model
+                "defect_coefficients": defect_model  # ok to keep for metadata
             })
+
             results.append(result)
 
         except Exception as e:
@@ -1203,19 +1152,24 @@ def run_simulations_on_batch(file_paths, config):
 
     return results
 
-def standardize_output(results, config, file_name=None, recovery_coeffs=None, defect_coeffs=None):
+def standardize_output(results, config, file_name=None, recovery_coeffs=None, defect_model=None):
     output = {
         "file": file_name if file_name else "user_defined",
         "used_lognormal_bs": results.get("used_lognormal_bs", True),
         "used_accurate_recovery": bool(config.get("use_accurate_recovery", 1)),
     }
-
+    
     output.update({f"param_{k}": v for k, v in config.items()})
 
     if recovery_coeffs:
         output.update({f"recovery_{k}": v for k, v in recovery_coeffs.items()})
-    if defect_coeffs:
-        output.update({f"defect_{k}": v for k, v in defect_coeffs.items()})
+
+    if defect_model:
+        try:
+            model_params = defect_model.params.to_dict()
+            output.update({f"defect_{k}": v for k, v in model_params.items()})
+        except Exception:
+            output["defect_model_repr"] = str(defect_model)[:500] 
 
     output.update({f"result_{k}": v for k, v in results.items() if k != "file"})
 
@@ -1294,7 +1248,7 @@ def run_simulations_on_batch_with_export(file_paths, config, output_path=None):
     return results
 
 
-def run_manual_monte_with_export(use_lognormal_bs, config, recovery_coeffs, defect_coeffs, D_0LLs, output_path=None, label=None):
+def run_manual_monte_with_export(use_lognormal_bs, config, recovery_coeffs, defect_model, D_0LLs, output_path=None, label=None):
     try:
         degradation_mean = config.get("degradation_mean")
         degradation_stddev = config.get("degradation_stddev")
@@ -1325,8 +1279,8 @@ def run_manual_monte_with_export(use_lognormal_bs, config, recovery_coeffs, defe
             normal_corrective_maintenance_cost=config["normal_corrective_maintenance_cost"],
             emergency_corrective_maintenance_cost=config["emergency_corrective_maintenance_cost"],
             recovery_coefficients=recovery_coeffs,
-            defect_coefficients=defect_coeffs,
-            use_lognormal_bs = use_lognormal_bs
+            defect_model=defect_model,  # << updated key
+            use_lognormal_bs=use_lognormal_bs
         )
 
         standardized = standardize_output(
@@ -1334,7 +1288,7 @@ def run_manual_monte_with_export(use_lognormal_bs, config, recovery_coeffs, defe
             config=config,
             file_name=label if label else "manual_simulation",
             recovery_coeffs=recovery_coeffs,
-            defect_coeffs=defect_coeffs
+            defect_coeffs=defect_model  # this is just metadata
         )
 
         export_results_to_excel([standardized], output_path=output_path)
