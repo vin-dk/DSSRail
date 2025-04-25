@@ -839,7 +839,6 @@ def sim_seg(time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, lognormal_mean, lo
     tn = 0
     Npm = Ncm_n = Ncm_e = Ninsp = total_response_delay = 0
 
-    # Sample initial degradation rate
     if use_lognormal_bs:
         b_s = np.random.lognormal(mean=lognormal_mean, sigma=lognormal_stddev)
     else:
@@ -855,7 +854,12 @@ def sim_seg(time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, lognormal_mean, lo
 
         # Preventive maintenance decision
         if t % T_tamp == 0 and DLL_s_t > AL:
-            D_0LLs = recovery(DLL_s_t, recovery_coefficients, tamping_type=1, re_s_m=re_s_m, re_s_s=re_s_s)
+            try:
+                D_0LLs = recovery(DLL_s_t, recovery_coefficients, tamping_type=1, re_s_m=re_s_m, re_s_s=re_s_s)
+            except Exception as e:
+                print(f"[!] Recovery failed at t={t} (PM): DLL_s={DLL_s_t:.4f}, b_s={b_s:.4f}")
+                print(f"    Error: {e}")
+                raise
             Npm += 1
             tn = t
             b_s = np.random.lognormal(mean=lognormal_mean, sigma=lognormal_stddev) if use_lognormal_bs else \
@@ -865,28 +869,50 @@ def sim_seg(time_horizon, T_insp, T_tamp, T_step, AL, D_0LLs, lognormal_mean, lo
         # Inspection event
         if t % T_insp == 0:
             Ninsp += 1
-            probs = defect(DLL_s_t, defect_model)  # <- pass full model now
-            P2 = probs["P2"]
-            P3 = probs["P3"]
+            try:
+                probs = defect(DLL_s_t, defect_model)
+                P1 = probs["P1"]
+                P2 = probs["P2"]
+
+                if not (0 <= P1 <= 1 and 0 <= P2 <= 1):
+                    print(f"[!] Warning: Probabilities out of bounds at t={t}, DLL_s={DLL_s_t:.4f}")
+                    print(f"    P1={P1:.4f}, P2={P2:.4f}, b_s={b_s:.4f}")
+
+            except Exception as e:
+                print(f"[X] Defect model failed at t={t}, DLL_s={DLL_s_t:.4f}")
+                print(f"    Error: {e}")
+                raise
 
             # Emergency corrective
-            if P3 > IALL:
-                D_0LLs = recovery(DLL_s_t, recovery_coefficients, tamping_type=0, re_s_m=re_s_m, re_s_s=re_s_s)
+            if P2 > IALL:
+                try:
+                    D_0LLs = recovery(DLL_s_t, recovery_coefficients, tamping_type=0, re_s_m=re_s_m, re_s_s=re_s_s)
+                except Exception as e:
+                    print(f"[!] Recovery failed at t={t} (Emergency CM): DLL_s={DLL_s_t:.4f}")
+                    print(f"    Error: {e}")
+                    raise
                 Ncm_e += 1
                 tn = t
                 continue
 
             # Normal corrective
-            if P2 > ILL:
+            if P1 > ILL:
                 response_time = int(np.random.normal(loc=RM, scale=RV))
                 response_time = max(0, response_time)
                 total_response_delay += response_time
                 t += response_time
 
                 delayed_e_s = np.random.normal(e_s_mean, e_s_s)
-                DLL_s_t = degrade(DLL_s_t, b_s, response_time, delayed_e_s)
 
-                D_0LLs = recovery(DLL_s_t, recovery_coefficients, tamping_type=0, re_s_m=re_s_m, re_s_s=re_s_s)
+                try:
+                    DLL_s_t = degrade(DLL_s_t, b_s, response_time, delayed_e_s)
+                    D_0LLs = recovery(DLL_s_t, recovery_coefficients, tamping_type=0, re_s_m=re_s_m, re_s_s=re_s_s)
+                except Exception as e:
+                    print(f"[!] Recovery or degradation failed during normal CM at t={t}")
+                    print(f"    DLL_s={DLL_s_t:.4f}, response_time={response_time}, delayed_e_s={delayed_e_s:.4f}")
+                    print(f"    Error: {e}")
+                    raise
+
                 Ncm_n += 1
                 tn = t
                 continue
@@ -1230,11 +1256,11 @@ def run_simulations_on_batch_with_export(file_paths, config, output_path=None):
     for res in results:
         if "error" not in res:
             standardized = standardize_output(
-                result=res,
+                results=res,
                 config=config,
                 file_name=res["file"],
                 recovery_coeffs=res["recovery_coefficients"],
-                defect_coeffs=res["defect_coefficients"]
+                defect_model=res["defect_coefficients"]
             )
             export_ready.append(standardized)
         else:
@@ -1397,7 +1423,7 @@ config = {
     "IALL": 0.05,                       # Prob. threshold for emergency CM
     "RM": 35,                           # Response mean delay
     "RV": 7,                            # Response std delay
-    "num_simulations": 10000,          # Number of Monte Carlo runs
+    "num_simulations": 100,          # Number of Monte Carlo runs
     "inspection_cost": 240,
     "preventive_maintenance_cost": 3500,
     "normal_corrective_maintenance_cost": 11000,
