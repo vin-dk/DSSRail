@@ -66,39 +66,325 @@ IALL = 0.05  # Trigger emergency corrective if P3 > 0.05
 PARAMETERS END
 """
 
-def take_in_from_df(df):
-# global case
-    from tempfile import NamedTemporaryFile
-    import pandas as pd
+def derive_global_degradation(file_paths):
+    import numpy as np
+    from scipy.stats import anderson
 
-    with NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
-        df.to_excel(tmp.name, index=False)
-        return take_in(tmp.name)
+    all_bs_values = []
+
+    for fp in file_paths:
+        try:
+            deg_info = take_in(fp)  # Use file-specific logic
+            all_bs_values.extend(deg_info["degradation_rates"])
+        except Exception as e:
+            print(f"[!] Skipping degradation for {fp}: {e}")
+
+    if not all_bs_values:
+        raise ValueError("No degradation rates collected from any files.")
+
+    all_bs_values = [b for b in all_bs_values if b > 0]
+    if not all_bs_values:
+        raise ValueError("No valid (positive) degradation rates found.")
+
+    log_bs = np.log(all_bs_values)
+    result = anderson(log_bs, dist="norm")
+
+    if result.statistic < result.critical_values[2]:
+        print("Global degradation: lognormal distribution accepted.")
+        log_mean = np.mean(log_bs)
+        log_std = np.std(log_bs)
+
+        degradation_mean = np.exp(log_mean + 0.5 * log_std**2)
+        degradation_stddev = np.sqrt((np.exp(log_std**2) - 1) * np.exp(2 * log_mean + log_std**2))
+        use_lognormal = True
+    else:
+        print("Global degradation: normal distribution assumed.")
+        degradation_mean = np.mean(all_bs_values)
+        degradation_stddev = np.std(all_bs_values)
+        use_lognormal = False
+
+    return {
+        "degradation_mean": degradation_mean,
+        "degradation_stddev": degradation_stddev,
+        "use_lognormal": use_lognormal,
+        "all_bs": all_bs_values  # keep for recovery if needed
+    }
+
+def derive_global_recovery(file_paths):
+    import pandas as pd
+    import numpy as np
+    from sklearn.linear_model import LinearRegression
+    from scipy.stats import anderson
+
+    all_X = []
+    all_Y = []
+
+    for fp in file_paths:
+        try:
+            df = pd.read_excel(fp)
+            if df.empty:
+                continue
+
+            df["Date"] = pd.to_datetime(df["Date"])
+            if "DLL_s" not in df.columns:
+                if "A" in df.columns:
+                    df = df.rename(columns={"A": "DLL_s"})
+                elif "G" in df.columns:
+                    df = df.rename(columns={"G": "DLL_s"})
+                else:
+                    continue
+
+            required_cols = ["DLL_s", "Tamping Performed", "Tamping Type"]
+            if not all(col in df.columns for col in required_cols):
+                continue
+
+            if df["DLL_s"].std() < 1e-6 or (df["DLL_s"] < 0).any():
+                continue
+
+            tamping_events = df[df["Tamping Performed"] == 1]
+            if len(tamping_events) < 4:
+                continue
+
+            DLL_s = df["DLL_s"].values
+            recovery_vals = []
+            recovery_indices = []
+
+            for idx in tamping_events.index:
+                if idx + 1 < len(df):
+                    delta = DLL_s[idx] - DLL_s[idx + 1]
+                    recovery_vals.append(delta)
+                    recovery_indices.append(idx)
+
+            if len(recovery_vals) < 3:
+                continue
+
+            tap_df = df.loc[recovery_indices].copy()
+            X = tap_df[["DLL_s", "Tamping Type"]].copy()
+            X["Tamping Type"] = X["Tamping Type"].map({1: 0, 2: 1})
+            X["Interaction"] = X["DLL_s"] * X["Tamping Type"]
+
+            all_X.append(X)
+            all_Y.append(np.array(recovery_vals))
+
+        except Exception as e:
+            print(f"[!] Skipping recovery from {fp}: {e}")
+
+    if not all_X or not all_Y:
+        raise ValueError("No valid recovery data extracted from input files.")
+
+    X_full = pd.concat(all_X, ignore_index=True).values
+    Y_full = np.concatenate(all_Y)
+
+    model = LinearRegression()
+    model.fit(X_full, Y_full)
+
+    residuals = Y_full - model.predict(X_full)
+    ad_result = anderson(residuals, dist="norm")
+
+    normal_resid = ad_result.statistic < ad_result.critical_values[2]
+    if normal_resid:
+        print("Global recovery residuals follow normal distribution.")
+    else:
+        print("Global recovery residuals DO NOT follow normal distribution.")
+
+    return {
+        "alpha_1": model.intercept_,
+        "beta_1": model.coef_[0],
+        "beta_2": model.coef_[1],
+        "beta_3": model.coef_[2],
+        "e_s_mean": np.mean(residuals),
+        "e_s_stddev": np.std(residuals)
+    }
+
     
-def derive_accurate_recovery_from_df(df, bs_values):
-    from tempfile import NamedTemporaryFile
+def derive_global_accurate_recovery_per_file_bs(file_paths):
     import pandas as pd
+    import numpy as np
+    from sklearn.linear_model import LinearRegression
+    from scipy.stats import anderson
 
-    with NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
-        df.to_excel(tmp.name, index=False)
-        return derive_accurate_recovery(tmp.name, bs_values)
+    all_X = []
+    all_Y = []
 
+    for fp in file_paths:
+        try:
+            # Get degradation info for this file
+            deg_info = take_in(fp)
+            file_bs_list = deg_info["degradation_rates"]
+            file_avg_bs = np.mean([b for b in file_bs_list if b > 0])
 
-def derive_defect_probabilities_from_df(df):
-    from tempfile import NamedTemporaryFile
+            df = pd.read_excel(fp)
+            if df.empty:
+                continue
+
+            df["Date"] = pd.to_datetime(df["Date"])
+            if "DLL_s" not in df.columns:
+                if "A" in df.columns:
+                    df = df.rename(columns={"A": "DLL_s"})
+                elif "G" in df.columns:
+                    df = df.rename(columns={"G": "DLL_s"})
+                else:
+                    continue
+
+            required_cols = ["DLL_s", "Tamping Performed", "Tamping Type", "Date"]
+            if not all(col in df.columns for col in required_cols):
+                continue
+
+            if df["DLL_s"].std() < 1e-6 or (df["DLL_s"] < 0).any():
+                continue
+
+            tamping_events = df[df["Tamping Performed"] == 1]
+            tamp_indices = tamping_events.index.tolist()
+            if len(tamp_indices) < 4:
+                continue
+
+            DLL_s = df["DLL_s"].values
+
+            adjusted_R_vals = []
+            valid_indices = []
+
+            for i in range(len(tamp_indices) - 1):
+                idx = tamp_indices[i]
+                next_idx = tamp_indices[i + 1]
+
+                if next_idx >= len(df):
+                    continue
+
+                t1 = df.loc[idx, "Date"]
+                t2 = df.loc[next_idx, "Date"]
+                interval = (t2 - t1).days
+
+                if interval <= 0:
+                    continue
+
+                observed_R = DLL_s[idx] - DLL_s[next_idx]
+                adjusted_R = observed_R + (file_avg_bs * interval)
+
+                adjusted_R_vals.append(adjusted_R)
+                valid_indices.append(idx)
+
+            if len(adjusted_R_vals) < 3:
+                continue
+
+            tap_df = df.loc[valid_indices].copy()
+            X = tap_df[["DLL_s", "Tamping Type"]].copy()
+            X["Tamping Type"] = X["Tamping Type"].map({1: 0, 2: 1})
+            X["Interaction"] = X["DLL_s"] * X["Tamping Type"]
+
+            all_X.append(X)
+            all_Y.append(np.array(adjusted_R_vals))
+
+        except Exception as e:
+            print(f"[!] Skipping accurate recovery from {fp}: {e}")
+
+    if not all_X or not all_Y:
+        raise ValueError("No valid recovery data found for accurate model.")
+
+    X_full = pd.concat(all_X, ignore_index=True).values
+    Y_full = np.concatenate(all_Y)
+
+    model = LinearRegression()
+    model.fit(X_full, Y_full)
+
+    residuals = Y_full - model.predict(X_full)
+    ad_result = anderson(residuals, dist="norm")
+
+    normal_resid = ad_result.statistic < ad_result.critical_values[2]
+    if normal_resid:
+        print("Accurate recovery residuals follow normal distribution.")
+    else:
+        print("Accurate recovery residuals DO NOT follow normal distribution.")
+
+    return {
+        "alpha_1": model.intercept_,
+        "beta_1": model.coef_[0],
+        "beta_2": model.coef_[1],
+        "beta_3": model.coef_[2],
+        "e_s_mean": np.mean(residuals),
+        "e_s_stddev": np.std(residuals)
+    }
+
+def derive_global_defect_probabilities(file_paths):
     import pandas as pd
+    import numpy as np
+    from statsmodels.miscmodels.ordinal_model import OrderedModel
 
-    with NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
-        df.to_excel(tmp.name, index=False)
-        return derive_defect_probabilities(tmp.name)
+    all_dll = []
+    all_defects = []
+
+    for fp in file_paths:
+        try:
+            df = pd.read_excel(fp)
+            if df.empty:
+                continue
+
+            if "DLL_s" not in df.columns:
+                if "A" in df.columns:
+                    df = df.rename(columns={"A": "DLL_s"})
+                elif "G" in df.columns:
+                    df = df.rename(columns={"G": "DLL_s"})
+                else:
+                    continue
+
+            required = ["DLL_s", "Defect"]
+            if not all(c in df.columns for c in required):
+                continue
+
+            if df["DLL_s"].std() < 1e-6 or (df["DLL_s"] < 0).any():
+                continue
+
+            if not set(df["Defect"].unique()).issubset({0, 1, 2}):
+                continue
+
+            all_dll.extend(df["DLL_s"].tolist())
+            all_defects.extend(df["Defect"].tolist())
+
+        except Exception as e:
+            print(f"[!] Skipping defect data from {fp}: {e}")
+
+    if len(all_dll) < 10:
+        raise ValueError("Not enough total defect samples for global model.")
+
+    X = pd.DataFrame({"DLL_s": all_dll})
+    Y = pd.Series(all_defects)
+
+    try:
+        model = OrderedModel(Y, X, distr="logit")
+        results = model.fit(method="lbfgs", disp=False)
+    except Exception as e:
+        raise RuntimeError(f"Failed to fit global defect model: {e}")
+
+    if not results.mle_retvals.get("converged", False):
+        raise RuntimeError("Global defect model did not converge.")
+
+    params = results.params
+    threshold_keys = [k for k in params.index if "/" in k or "threshold" in k]
+
+    if len(threshold_keys) != 2:
+        raise ValueError("Expected two thresholds (C0, C1) for 3-class model.")
+
+    thresholds = {k: params[k] for k in sorted(threshold_keys)}
+    C0 = thresholds[sorted(threshold_keys)[0]]
+    C1 = thresholds[sorted(threshold_keys)[1]]
+
+    if "DLL_s" not in params:
+        raise ValueError("Missing DLL_s coefficient in global defect model.")
+
+    beta = params["DLL_s"]
+    prsquared = results.prsquared
+
+    print("Global defect model trained.")
+    print(f"Thresholds: C₀={C0:.3f}, C₁={C1:.3f}")
+    print(f"β (DLL_s): {beta:.3f}")
+    print(f"Pseudo R²: {prsquared:.3f}")
+
+    return {
+        "C0": C0,
+        "C1": C1,
+        "beta": beta,
+        "goodness_of_fit": prsquared
+    }
     
-def derive_recovery_from_df(df):
-    from tempfile import NamedTemporaryFile
-    import pandas as pd
-
-    with NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
-        df.to_excel(tmp.name, index=False)
-        return derive_recovery(tmp.name)
 
 def take_in(file_path):
 # deg calc 
@@ -488,9 +774,6 @@ def derive_defect_probabilities(file_path):
     C0 = thresholds[sorted(threshold_keys)[0]]
     C1 = thresholds[sorted(threshold_keys)[1]]
 
-    if C0 >= C1:
-        raise ValueError(f"Thresholds not in expected order: C0={C0}, C1={C1}")
-
     if "DLL_s" not in params:
         raise ValueError("Model did not estimate DLL_s coefficient.")
 
@@ -765,7 +1048,8 @@ def monte(
         "Average Preventive Maintenances": avg_pm,
         "Average Normal Corrective Maintenances": avg_cm_n,
         "Average Emergency Corrective Maintenances": avg_cm_e,
-        "Average Cost": avg_cost
+        "Average Cost": avg_cost,
+        "Final D0LL_s": D_0LLs
     }
 
 def run_full_simulation_on_file(file_path, config):
@@ -835,49 +1119,40 @@ def run_full_simulation_on_file(file_path, config):
         }
     
 def run_simulations_on_batch(file_paths, config):
-# global version, batches files together, learns on all of them
-    # still individual seg analysis 
-    import pandas as pd
     from pathlib import Path
 
-    all_data = []
     dll_starts = {}
 
+    print("Extracting initial D_0LLs per file...")
     for fp in file_paths:
         try:
-            df = pd.read_excel(fp)
-            df["source_file"] = Path(fp).name
-            all_data.append(df)
-
             deg_info = take_in(fp)
             dll_starts[fp] = deg_info["D_0LLs"]
         except Exception as e:
             print(f"[!] Skipping {fp}: {e}")
 
-    if not all_data:
-        raise ValueError("No valid input files provided.")
-
-    global_df = pd.concat(all_data, ignore_index=True)
+    if not dll_starts:
+        raise ValueError("No valid D_0LLs extracted from any files.")
 
     print("Training global degradation model...")
-    global_deg_info = take_in_from_df(global_df)
-    use_lognormal = global_deg_info["use_lognormal"]
-
+    deg_model = derive_global_degradation(file_paths)
+    use_lognormal = deg_model["use_lognormal"]
+    
     if use_lognormal:
-        degradation_mean = np.log(global_deg_info["degradation_mean"])
-        degradation_stddev = np.sqrt(np.log(1 + (global_deg_info["degradation_stddev"] / global_deg_info["degradation_mean"])**2))
+        degradation_mean = np.log(deg_model["degradation_mean"])
+        degradation_stddev = np.sqrt(np.log(1 + (deg_model["degradation_stddev"] / deg_model["degradation_mean"])**2))
     else:
-        degradation_mean = global_deg_info["degradation_mean"]
-        degradation_stddev = global_deg_info["degradation_stddev"]
+        degradation_mean = deg_model["degradation_mean"]
+        degradation_stddev = deg_model["degradation_stddev"]
 
     print("Training global recovery model...")
     if config.get("use_accurate_recovery", 1):
-        recovery_model = derive_accurate_recovery_from_df(global_df, global_deg_info["degradation_rates"])
+        recovery_model = derive_global_accurate_recovery_per_file_bs(file_paths)
     else:
-        recovery_model = derive_recovery_from_df(global_df)
+        recovery_model = derive_global_recovery(file_paths)
 
     print("Training global defect model...")
-    defect_model = derive_defect_probabilities_from_df(global_df)
+    defect_model = derive_global_defect_probabilities(file_paths)
 
     results = []
     for path in file_paths:
@@ -918,8 +1193,13 @@ def run_simulations_on_batch(file_paths, config):
                 "defect_coefficients": defect_model
             })
             results.append(result)
+
         except Exception as e:
-            results.append({"file": path, "error": str(e), "status": "failed"})
+            results.append({
+                "file": path,
+                "error": str(e),
+                "status": "failed"
+            })
 
     return results
 
@@ -1094,7 +1374,40 @@ def analyze_file_only(file_path):
         }
     
 def analyze_files_only(file_paths):
-    return [analyze_file_only(path) for path in file_paths]
+    try:
+        print("[*] Running global model analysis only (no simulation)...")
+
+        # Global degradation
+        global_deg = derive_global_degradation(file_paths)
+        degradation_mean = (
+            np.log(global_deg["degradation_mean"]) if global_deg["use_lognormal"]
+            else global_deg["degradation_mean"]
+        )
+        degradation_stddev = (
+            np.sqrt(np.log(1 + (global_deg["degradation_stddev"] / global_deg["degradation_mean"])**2))
+            if global_deg["use_lognormal"]
+            else global_deg["degradation_stddev"]
+        )
+
+        # Global recovery (accurate or not)
+        global_recovery = derive_global_accurate_recovery_per_file_bs(file_paths)
+
+        # Global defect model
+        global_defect = derive_global_defect_probabilities(file_paths)
+
+        return {
+            "degradation_mean": degradation_mean,
+            "degradation_stddev": degradation_stddev,
+            "use_lognormal_bs": global_deg["use_lognormal"],
+            "recovery_model": global_recovery,
+            "defect_model": global_defect
+        }
+
+    except Exception as e:
+        return {
+            "error": str(e),
+            "status": "failed"
+        }
 
 from pathlib import Path
 
@@ -1149,7 +1462,7 @@ def collect_excel_files(directory_path):
 
     return [str(file) for file in excel_files]
 
-
+"""
 result = monte(
     time_horizon=15 * 365,
     T_insp=120,
@@ -1187,3 +1500,11 @@ result = monte(
 )
 
 print(result)
+
+"""
+
+directory_path = r"C:\Users\13046\synthetic_track_dataset"
+
+file_paths = collect_excel_files(directory_path)
+
+results = run_simulations_on_batch_with_export(file_paths, config=config, output_path="results_summary.xlsx")
