@@ -9,8 +9,9 @@ import matplotlib.pyplot as plt
 """
 PSI
 """
+
 def take_in_PSI(file_path):
-# PSI TAKE IN, Treats PSI as DLL_s, inverted
+    # NOTE, inverted from DLL_s
     import pandas as pd
     import numpy as np
     from scipy.stats import anderson
@@ -37,28 +38,37 @@ def take_in_PSI(file_path):
 
     df = df.sort_values(by="Date")
 
-    df["Time Interval"] = (df["Date"] - df["Date"].shift(1)).dt.days
-
-    maintenance_indices = df[df["Maintenance"] == 1].index
+    maintenance_indices = df[df["Maintenance"] == 1].index.tolist()
     if len(maintenance_indices) < 2:
         raise ValueError("At least two maintenance events are required to calculate degradation.")
-
-    degradation_periods = []
-    for i in range(len(maintenance_indices) - 1):
-        start = maintenance_indices[i] + 1  # After maintenance
-        end = maintenance_indices[i + 1]    # Up to next maintenance
-        degradation_periods.append(df.loc[start:end])
 
     degradation_rates = []
     time_intervals = []
 
-    for period in degradation_periods:
-        period["Degradation Rate"] = -period["PSI"].diff() / period["Time Interval"]
-        degradation_rates.extend(period["Degradation Rate"].dropna().tolist())
-        time_intervals.extend(period["Time Interval"].dropna().tolist())
+    for i in range(len(maintenance_indices) - 1):
+        start_idx = maintenance_indices[i] + 1
+        end_idx = maintenance_indices[i + 1]
 
-    psi_diffs = -df["PSI"].diff().dropna()
-    psi_diffs = psi_diffs[psi_diffs > 0]
+        if end_idx <= start_idx or end_idx >= len(df):
+            continue
+
+        sub_df = df.loc[start_idx:end_idx]
+        if sub_df.empty:
+            continue
+
+        psi_start = sub_df["PSI"].iloc[0]
+        psi_end = sub_df["PSI"].iloc[-1]
+        days = (sub_df["Date"].iloc[-1] - sub_df["Date"].iloc[0]).days
+
+        if days <= 0:
+            continue
+
+        rate = (psi_start - psi_end) / days  # PSI drops over time → degradation is positive
+        degradation_rates.append(rate)
+        time_intervals.append(days)
+
+    psi_diffs = df["PSI"].diff().dropna()
+    psi_diffs = -psi_diffs[psi_diffs < 0]  # Invert to keep only actual PSI drops (positive degradation)
 
     if psi_diffs.empty:
         raise ValueError("Not enough valid positive degradation differences to test for lognormality.")
@@ -66,15 +76,13 @@ def take_in_PSI(file_path):
     log_psi_values = np.log(psi_diffs)
     result = anderson(log_psi_values, dist="norm")
 
-    if result.statistic < result.critical_values[2]:  # 5% significance level
+    if result.statistic < result.critical_values[2]:
         print("PSI degradation rates follow a lognormal distribution.")
-        lognormal_mean = np.mean(log_psi_values)
-        lognormal_stddev = np.std(log_psi_values)
+        log_mean = np.mean(log_psi_values)
+        log_std = np.std(log_psi_values)
 
-        degradation_mean = np.exp(lognormal_mean + 0.5 * lognormal_stddev**2)
-        degradation_stddev = np.sqrt(
-            (np.exp(lognormal_stddev**2) - 1) * np.exp(2 * lognormal_mean + lognormal_stddev**2)
-        )
+        degradation_mean = np.exp(log_mean + 0.5 * log_std**2)
+        degradation_stddev = np.sqrt((np.exp(log_std**2) - 1) * np.exp(2 * log_mean + log_std**2))
     else:
         print("PSI degradation rates do not follow a lognormal distribution. Assuming normal distribution.")
         degradation_mean = psi_diffs.mean()
@@ -107,244 +115,82 @@ def degrade_PSI(current_PSI, b_s, time, e_s):
     return max(next_PSI, 0)  # Ensures PSI does not drop below 0
 
 
-def recovery_PSI(current_PSI, recovery_coefficients, maintenance_action, re_s_m, re_s_s):
+def recovery_PSI(current_PSI, maintenance_action):
+    """
+    Simple, rule-based PSI recovery function.
 
-    # If Maintenance Action is 4, PSI resets to 1.0
+    Args:
+        current_PSI (float): PSI value before recovery
+        maintenance_action (int): Tamping type
+            1 = Minor
+            2 = Moderate
+            3 = Major
+            4 = Full reset
+
+    Returns:
+        float: Recovered PSI (capped at 1.0)
+    """
     if maintenance_action == 4:
-        return 1.0  # Special case handled in loop logic
+        return 1.0  # Full reset, per Guler et al.
 
-    # Map maintenance action levels
-    if maintenance_action == 1:
-        tamping_effect = 0.0  # Minor improvement
-    elif maintenance_action == 2:
-        tamping_effect = 1.0  # Moderate improvement
-    elif maintenance_action == 3:
-        tamping_effect = 1.5  # Major improvement
-    else:
+    # Define recovery ratios (can tweak at runtime)
+    recovery_ratios = {
+        1: 0.10,  # Minor: recover 10% of lost PSI
+        2: 0.30,  # Moderate: recover 30% of lost PSI
+        3: 0.50,  # Major: recover 50% of lost PSI
+    }
+
+    if maintenance_action not in recovery_ratios:
         raise ValueError(f"Invalid Maintenance Action: {maintenance_action}")
 
-    alpha_1 = recovery_coefficients["alpha_1"]
-    beta_1 = recovery_coefficients["beta_1"]
-    beta_2 = recovery_coefficients["beta_2"]
-    beta_3 = recovery_coefficients["beta_3"]
-
-    epsilon_PSI = np.random.normal(re_s_m, re_s_s)
-
-    R_PSI = (
-        alpha_1 +
-        beta_1 * current_PSI +
-        beta_2 * tamping_effect +
-        beta_3 * tamping_effect * current_PSI +
-        epsilon_PSI
-    )
-
-    updated_PSI = current_PSI + R_PSI
-    return min(updated_PSI, 1.0)  # Ensure PSI does not exceed 1.0
-
-
-
-def derive_recovery_PSI(file_path):
-    df = pd.read_excel(file_path)
-
-    required_columns = ["Date", "PSI", "Maintenance", "Maintenance Action", "Defect"]
-    if not all(col in df.columns for col in required_columns):
-        raise ValueError(f"Input file must contain the following columns: {required_columns}")
-
-    maintenance_events = df[df["Maintenance"] == 1]
-
-    if len(maintenance_events) < 4:
-        raise ValueError("Not enough maintenance events to perform regression.")
-
-    R_PSI = []
-    PSI_values = df["PSI"].values
-
-    for index in maintenance_events.index:
-        if index + 1 < len(df):
-            R_PSI.append(PSI_values[index + 1] - PSI_values[index])  # Now adding instead of subtracting
-
-    maintenance_events = maintenance_events.iloc[:-1]
-
-    X = maintenance_events[["PSI", "Maintenance Action"]].copy()
-    X["Maintenance Action"] = X["Maintenance Action"].map({1: 0, 2: 1, 3: 1.5})  # Minor = 0, Moderate = 1, Major = 1.5
-    X["Interaction"] = X["PSI"] * X["Maintenance Action"]  # Interaction term
-
-    X = X.values
-    Y = np.array(R_PSI)
-
-    model = LinearRegression()
-    model.fit(X, Y)
-
-    alpha_1 = model.intercept_
-    beta_1, beta_2, beta_3 = model.coef_
-
-    print(f"Derived PSI Recovery Coefficients:")
-    print(f"alpha_1 (Intercept): {alpha_1}")
-    print(f"beta_1 (Coefficient for PSI): {beta_1}")
-    print(f"beta_2 (Coefficient for Maintenance Action): {beta_2}")
-    print(f"beta_3 (Interaction Coefficient): {beta_3}")
-
-    residuals = Y - model.predict(X)
-
-    ad_test_result = anderson(residuals, dist='norm')
-
-    if ad_test_result.statistic < ad_test_result.critical_values[2]:
-        print("Residuals follow a normal distribution.")
-        residual_mean = np.mean(residuals)
-        residual_stddev = np.std(residuals)
-        print(f"Error Term Mean (e_s_mean): {residual_mean}")
-        print(f"Error Term Stddev (e_s_stddev): {residual_stddev}")
-    else:
-        print("Residuals do NOT follow a normal distribution. Error term calculation is invalid. This breaks an assumption, but the sampled mean and std will be used.")
-        residual_mean = np.mean(residuals)
-        residual_stddev = np.std(residuals)
-
-    return {
-        "alpha_1": alpha_1,
-        "beta_1": beta_1,
-        "beta_2": beta_2,
-        "beta_3": beta_3,
-        "e_s_mean": residual_mean,
-        "e_s_stddev": residual_stddev
-    }
-
-
-def derive_accurate_recovery_PSI(file_path, bs_values):
-# alt version
-    import pandas as pd
-    import numpy as np
-    from sklearn.linear_model import LinearRegression
-    from scipy.stats import anderson
-
-    df = pd.read_excel(file_path)
-
-    required_columns = ["Date", "PSI", "Maintenance", "Maintenance Action", "Defect"]
-    if not all(col in df.columns for col in required_columns):
-        raise ValueError(f"Input file must contain the following columns: {required_columns}")
-
-    df["Date"] = pd.to_datetime(df["Date"])
-    
-    maintenance_events = df[df["Maintenance"] == 1]
-    if len(maintenance_events) < 4:
-        raise ValueError("Not enough maintenance events to perform regression.")
-
-    average_bs = np.mean(bs_values)
-
-    PSI_values = df["PSI"].values
-    R_PSI_adjusted = []
-    maintenance_indices = maintenance_events.index.tolist()
-
-    for i in range(len(maintenance_indices) - 1):
-        idx = maintenance_indices[i]
-        next_idx = maintenance_indices[i + 1]
-
-        observed_R = PSI_values[next_idx] - PSI_values[idx] 
-
-        t1 = df.loc[idx, "Date"]
-        t2 = df.loc[next_idx, "Date"]
-        interval = (t2 - t1).days
-        
-        adjusted_R = observed_R - (average_bs * interval)
-        R_PSI_adjusted.append(adjusted_R)
-
-    maintenance_events = maintenance_events.iloc[:-1]
-
-    X = maintenance_events[["PSI", "Maintenance Action"]].copy()
-    X["Maintenance Action"] = X["Maintenance Action"].map({1: 0, 2: 1, 3: 1.5})  # Minor = 0, Moderate = 1, Major = 1.5
-    X["Interaction"] = X["PSI"] * X["Maintenance Action"]  # Interaction term
-
-    X = X.values
-    Y = np.array(R_PSI_adjusted)
-
-    model = LinearRegression()
-    model.fit(X, Y)
-
-    alpha_1 = model.intercept_
-    beta_1, beta_2, beta_3 = model.coef_
-
-    print("Derived Accurate PSI Recovery Coefficients:")
-    print(f"alpha_1 (Intercept): {alpha_1}")
-    print(f"beta_1 (Coefficient for PSI): {beta_1}")
-    print(f"beta_2 (Coefficient for Maintenance Action): {beta_2}")
-    print(f"beta_3 (Interaction Coefficient): {beta_3}")
-
-    residuals = Y - model.predict(X)
-    ad_test_result = anderson(residuals, dist='norm')
-
-    if ad_test_result.statistic < ad_test_result.critical_values[2]:
-        print("Residuals follow a normal distribution.")
-        residual_mean = np.mean(residuals)
-        residual_stddev = np.std(residuals)
-        print(f"Error Term Mean (e_s_mean): {residual_mean}")
-        print(f"Error Term Stddev (e_s_stddev): {residual_stddev}")
-    else:
-        print("Residuals do NOT follow a normal distribution. Error term calculation is invalid. This breaks an assumption, but the sampled mean and std will be used.")
-        residual_mean = np.mean(residuals)
-        residual_stddev = np.std(residuals)
-
-    return {
-        "alpha_1": alpha_1,
-        "beta_1": beta_1,
-        "beta_2": beta_2,
-        "beta_3": beta_3,
-        "e_s_mean": residual_mean,
-        "e_s_stddev": residual_stddev
-    }
+    lost = 1.0 - current_PSI
+    recovered = recovery_ratios[maintenance_action] * lost
+    return min(current_PSI + recovered, 1.0)
 
 
 def sim_seg_PSI(
-    time_horizon, T_insp, T_tamp, T_step, AL, PSI_0, lognormal_mean, lognormal_stddev,
-    e_s_mean, e_s_s, re_s_m, re_s_s, RM, RV
+    time_horizon, T_insp, T_tamp, T_step, AL, PSI_0,
+    lognormal_mean, lognormal_stddev,
+    e_s_mean, e_s_stddev,
+    recovery_thresholds=(0.6, 0.4, 0.2)
 ):
-    # Initialize variables
-    t = 1  # Start time
-    tn = 0  # Last maintenance time
-    Npm = 0  # Preventive maintenance counter
-    Ncm_n = 0  # Corrective maintenance (normal) counter
-    Ncm_e = 0  # Corrective maintenance (emergency) counter
-    Ninsp = 0  # Inspection counter
-    total_response_delay = 0  # Total response delay accrued
-    PSI_t = PSI_0  # Current PSI state
+    t = 1
+    tn = 0
+    Npm = Ncm_n = Ncm_e = Ninsp = 0
+    PSI_t = PSI_0
 
     b_s = np.random.lognormal(mean=lognormal_mean, sigma=lognormal_stddev)
 
     while t <= time_horizon:
-        t += T_step  
-        e_s = np.random.normal(e_s_mean, e_s_s)
-        PSI_t = max(PSI_t - (b_s * T_step) - e_s, 0)  
+        t += T_step
+        e_s = np.random.normal(e_s_mean, e_s_stddev)
+        PSI_t = max(PSI_t - (b_s * T_step) - e_s, 0)
 
-        if t % T_tamp == 0:
-            if PSI_t <= AL:
-                PSI_t = recovery_PSI(PSI_t, {"alpha_1": re_s_m, "beta_1": 0, "beta_2": 0, "beta_3": 0}, 1, re_s_m, re_s_s)
-                Npm += 1
-                tn = t
-                b_s = np.random.lognormal(mean=lognormal_mean, sigma=lognormal_stddev)
-
-            if t % T_insp == 0:
-                continue 
+        if t % T_tamp == 0 and PSI_t <= AL:
+            PSI_t = recovery_PSI(PSI_t, maintenance_action=1)
+            Npm += 1
+            tn = t
+            b_s = np.random.lognormal(mean=lognormal_mean, sigma=lognormal_stddev)
 
         if t % T_insp == 0:
             Ninsp += 1
-            
-            if 0.6 < PSI_t <= 1.0:
-                continue 
-
-            elif 0.4 < PSI_t <= 0.6:
-                # Partial replacement (Moderate Maintenance)
-                PSI_t = recovery_PSI(PSI_t, {"alpha_1": re_s_m, "beta_1": 0, "beta_2": 1, "beta_3": 0}, 2, re_s_m, re_s_s)
+            if recovery_thresholds[0] < PSI_t <= 1.0:
+                continue
+            elif recovery_thresholds[1] < PSI_t <= recovery_thresholds[0]:
+                PSI_t = recovery_PSI(PSI_t, maintenance_action=2)
                 Ncm_n += 1
                 tn = t
-
-            elif 0.2 < PSI_t <= 0.4:
-                # Planning of renewal (Major Maintenance)
-                PSI_t = recovery_PSI(PSI_t, {"alpha_1": re_s_m, "beta_1": 0, "beta_2": 1.5, "beta_3": 0}, 3, re_s_m, re_s_s)
+                b_s = np.random.lognormal(mean=lognormal_mean, sigma=lognormal_stddev)
+            elif recovery_thresholds[2] < PSI_t <= recovery_thresholds[1]:
+                PSI_t = recovery_PSI(PSI_t, maintenance_action=3)
                 Ncm_n += 1
                 tn = t
-
-            elif 0.0 <= PSI_t <= 0.2:
-                # Full renewal (Emergency Maintenance)
-                PSI_t = 1.0  # Complete reset
+                b_s = np.random.lognormal(mean=lognormal_mean, sigma=lognormal_stddev)
+            elif 0.0 <= PSI_t <= recovery_thresholds[2]:
+                PSI_t = recovery_PSI(PSI_t, maintenance_action=4)
                 Ncm_e += 1
                 tn = t
+                b_s = np.random.lognormal(mean=lognormal_mean, sigma=lognormal_stddev)
 
     return {
         "final_t": t,
@@ -353,27 +199,27 @@ def sim_seg_PSI(
         "Npm": Npm,
         "Ncm_n": Ncm_n,
         "Ncm_e": Ncm_e,
-        "Total Response Delay": total_response_delay,
         "Number of inspections": Ninsp
     }
 
 
 def monte_PSI(
-    time_horizon, T_insp, T_tamp, T_step, AL, PSI_0, degradation_mean, degradation_stddev, 
-    e_s_mean, e_s_variance, re_s_m, re_s_s, RM, RV, num_simulations, 
-    inspection_cost, preventive_maintenance_cost, normal_corrective_maintenance_cost, 
-    emergency_corrective_maintenance_cost
+    time_horizon, T_insp, T_tamp, T_step, AL, PSI_0,
+    degradation_mean, degradation_stddev,
+    e_s_mean, e_s_stddev,
+    num_simulations,
+    inspection_cost, preventive_maintenance_cost,
+    normal_corrective_maintenance_cost, emergency_corrective_maintenance_cost,
+    recovery_thresholds=(0.6, 0.4, 0.2)
 ):
-    total_inspections = 0
-    total_pm = 0
-    total_cm_n = 0
-    total_cm_e = 0
-    total_cost = 0
+    total_inspections = total_pm = total_cm_n = total_cm_e = total_cost = 0
 
     for _ in range(num_simulations):
         result = sim_seg_PSI(
-            time_horizon, T_insp, T_tamp, T_step, AL, PSI_0, degradation_mean, 
-            degradation_stddev, e_s_mean, e_s_variance, re_s_m, re_s_s, RM, RV
+            time_horizon, T_insp, T_tamp, T_step, AL, PSI_0,
+            degradation_mean, degradation_stddev,
+            e_s_mean, e_s_stddev,
+            recovery_thresholds
         )
 
         inspections = result["Number of inspections"]
@@ -394,24 +240,317 @@ def monte_PSI(
         total_cm_e += cm_e
         total_cost += cost
 
-    avg_inspections = total_inspections / num_simulations
-    avg_pm = total_pm / num_simulations
-    avg_cm_n = total_cm_n / num_simulations
-    avg_cm_e = total_cm_e / num_simulations
-    avg_cost = total_cost / num_simulations
-
     return {
         "Total Inspections": total_inspections,
         "Total Preventive Maintenances": total_pm,
         "Total Normal Corrective Maintenances": total_cm_n,
         "Total Emergency Corrective Maintenances": total_cm_e,
         "Total Cost": total_cost,
-        "Average Inspections": avg_inspections,
-        "Average Preventive Maintenances": avg_pm,
-        "Average Normal Corrective Maintenances": avg_cm_n,
-        "Average Emergency Corrective Maintenances": avg_cm_e,
-        "Average Cost": avg_cost
+        "Average Inspections": total_inspections / num_simulations,
+        "Average Preventive Maintenances": total_pm / num_simulations,
+        "Average Normal Corrective Maintenances": total_cm_n / num_simulations,
+        "Average Emergency Corrective Maintenances": total_cm_e / num_simulations,
+        "Average Cost": total_cost / num_simulations
     }
+
+def run_multi_segment_monte(
+    PSI_0_list,
+    time_horizon, T_insp, T_tamp, T_step, AL,
+    degradation_mean, degradation_stddev,
+    e_s_mean, e_s_stddev,
+    num_simulations,
+    inspection_cost, preventive_maintenance_cost,
+    normal_corrective_maintenance_cost, emergency_corrective_maintenance_cost
+):
+    """
+    Runs monte_PSI for a list of PSI_0 starting values with shared parameters.
+
+    Returns a list of result dictionaries.
+    """
+    results = []
+
+    for idx, PSI_0 in enumerate(PSI_0_list):
+        print(f"[INFO] Running simulation for segment {idx + 1} with PSI_0 = {PSI_0:.4f}")
+        result = monte_PSI(
+            time_horizon, T_insp, T_tamp, T_step, AL, PSI_0,
+            degradation_mean, degradation_stddev,
+            e_s_mean, e_s_stddev,  # These map to re_s_m and re_s_s but are used for e_s
+            RM=0, RV=0,  # Placeholder since PSI model doesn't currently use response time
+            num_simulations=num_simulations,
+            inspection_cost=inspection_cost,
+            preventive_maintenance_cost=preventive_maintenance_cost,
+            normal_corrective_maintenance_cost=normal_corrective_maintenance_cost,
+            emergency_corrective_maintenance_cost=emergency_corrective_maintenance_cost
+        )
+        result["Segment Index"] = idx + 1
+        result["Starting PSI"] = PSI_0
+        results.append(result)
+
+    return results
+
+import pandas as pd
+
+
+def export_multi_segment_monte_results_to_excel(
+    PSI_0_list,
+    time_horizon, T_insp, T_tamp, T_step, AL,
+    degradation_mean, degradation_stddev,
+    e_s_mean, e_s_stddev,
+    num_simulations,
+    inspection_cost, preventive_maintenance_cost,
+    normal_corrective_maintenance_cost, emergency_corrective_maintenance_cost,
+    output_file="monte_psi_results.xlsx"
+):
+    """
+    Runs multi-segment Monte Carlo simulations and exports the results to an Excel file.
+    """
+    results = run_multi_segment_monte(
+        PSI_0_list,
+        time_horizon, T_insp, T_tamp, T_step, AL,
+        degradation_mean, degradation_stddev,
+        e_s_mean, e_s_stddev,
+        num_simulations,
+        inspection_cost, preventive_maintenance_cost,
+        normal_corrective_maintenance_cost, emergency_corrective_maintenance_cost
+    )
+
+    df = pd.DataFrame(results)
+    df = df[
+        [
+            "Segment Index", "Starting PSI",
+            "Average Inspections", "Average Preventive Maintenances",
+            "Average Normal Corrective Maintenances", "Average Emergency Corrective Maintenances",
+            "Average Cost"
+        ]
+    ]
+
+    df.to_excel(output_file, index=False)
+    print(f"[INFO] Monte Carlo results exported to: {output_file}")
+    return df
+
+def full_pipeline_from_load_to_monte(
+    input_load_file,
+    traffic_load_per_year,
+    material_type,
+    output_dir=".",
+    num_simulations=1000,
+    time_horizon=365,
+    T_insp=30,
+    T_tamp=60,
+    T_step=1,
+    AL=0.7,
+    e_s_mean=0.0,
+    e_s_stddev=0.01,
+    inspection_cost=100,
+    preventive_maintenance_cost=300,
+    normal_corrective_maintenance_cost=700,
+    emergency_corrective_maintenance_cost=1500,
+    recovery_thresholds=(0.6, 0.4, 0.2)
+):
+    import os
+
+    # Step 1: Convert Load File → PSI File
+    psi_df = process_load_file_to_psi(
+        input_file=input_load_file,
+        traffic_load_per_year=traffic_load_per_year,
+        material_type=material_type
+    )
+
+    # Step 2: Derive initial PSI and degradation stats
+    stats = take_in_PSI(input_load_file.replace("Load", "converted"))
+    PSI_0 = stats["PSI_0"]
+    degradation_mean = stats["degradation_mean"]
+    degradation_stddev = stats["degradation_stddev"]
+
+    # Step 3: Run Monte Carlo for this one segment
+    results = run_multi_segment_monte(
+        psi_list=[PSI_0],
+        num_simulations=num_simulations,
+        time_horizon=time_horizon,
+        T_insp=T_insp,
+        T_tamp=T_tamp,
+        T_step=T_step,
+        AL=AL,
+        degradation_mean=degradation_mean,
+        degradation_stddev=degradation_stddev,
+        e_s_mean=e_s_mean,
+        e_s_stddev=e_s_stddev,
+        inspection_cost=inspection_cost,
+        preventive_maintenance_cost=preventive_maintenance_cost,
+        normal_corrective_maintenance_cost=normal_corrective_maintenance_cost,
+        emergency_corrective_maintenance_cost=emergency_corrective_maintenance_cost,
+        recovery_thresholds=recovery_thresholds
+    )
+
+    # Step 4: Save results to Excel
+    base_name = os.path.splitext(os.path.basename(input_load_file))[0]
+    out_path = os.path.join(output_dir, f"{base_name}_monte_results.xlsx")
+    export_multi_segment_monte_results_to_excel(results, out_path)
+
+    print(f"Full pipeline complete. Results saved to: {out_path}")
+    return results
+
+def full_pipeline_multi_load_to_monte(
+    load_file_list,
+    traffic_load_per_year,
+    material_type,
+    output_dir=".",
+    num_simulations=1000,
+    time_horizon=365,
+    T_insp=30,
+    T_tamp=60,
+    T_step=1,
+    AL=0.7,
+    e_s_mean=0.0,
+    e_s_stddev=0.01,
+    inspection_cost=100,
+    preventive_maintenance_cost=300,
+    normal_corrective_maintenance_cost=700,
+    emergency_corrective_maintenance_cost=1500,
+    recovery_thresholds=(0.6, 0.4, 0.2)
+):
+    all_results = {}
+
+    for file_path in load_file_list:
+        print(f"\n[•] Processing file: {file_path}")
+        try:
+            result = full_pipeline_from_load_to_monte(
+                input_load_file=file_path,
+                traffic_load_per_year=traffic_load_per_year,
+                material_type=material_type,
+                output_dir=output_dir,
+                num_simulations=num_simulations,
+                time_horizon=time_horizon,
+                T_insp=T_insp,
+                T_tamp=T_tamp,
+                T_step=T_step,
+                AL=AL,
+                e_s_mean=e_s_mean,
+                e_s_stddev=e_s_stddev,
+                inspection_cost=inspection_cost,
+                preventive_maintenance_cost=preventive_maintenance_cost,
+                normal_corrective_maintenance_cost=normal_corrective_maintenance_cost,
+                emergency_corrective_maintenance_cost=emergency_corrective_maintenance_cost,
+                recovery_thresholds=recovery_thresholds
+            )
+            all_results[os.path.basename(file_path)] = result
+
+        except Exception as e:
+            print(f"[!] Failed to process {file_path}: {e}")
+
+    print("\n[✓] All load files processed.")
+    return all_results
+
+def full_pipeline_from_psi_to_monte(
+    input_psi_file,
+    output_dir=".",
+    num_simulations=1000,
+    time_horizon=365,
+    T_insp=30,
+    T_tamp=60,
+    T_step=1,
+    AL=0.7,
+    e_s_mean=0.0,
+    e_s_stddev=0.01,
+    inspection_cost=100,
+    preventive_maintenance_cost=300,
+    normal_corrective_maintenance_cost=700,
+    emergency_corrective_maintenance_cost=1500,
+    recovery_thresholds=(0.6, 0.4, 0.2)
+):
+    from pathlib import Path
+
+    # 1. Derive degradation and PSI_0
+    degradation_data = take_in_PSI(input_psi_file)
+
+    PSI_0 = degradation_data["PSI_0"]
+    degradation_mean = degradation_data["degradation_mean"]
+    degradation_stddev = degradation_data["degradation_stddev"]
+
+    # 2. Run Monte Carlo
+    results = monte_PSI(
+        time_horizon=time_horizon,
+        T_insp=T_insp,
+        T_tamp=T_tamp,
+        T_step=T_step,
+        AL=AL,
+        PSI_0=PSI_0,
+        degradation_mean=degradation_mean,
+        degradation_stddev=degradation_stddev,
+        e_s_mean=e_s_mean,
+        e_s_variance=e_s_stddev,
+        re_s_m=e_s_mean,
+        re_s_s=e_s_stddev,
+        RM=0,
+        RV=0,
+        num_simulations=num_simulations,
+        inspection_cost=inspection_cost,
+        preventive_maintenance_cost=preventive_maintenance_cost,
+        normal_corrective_maintenance_cost=normal_corrective_maintenance_cost,
+        emergency_corrective_maintenance_cost=emergency_corrective_maintenance_cost
+    )
+
+    # 3. Export results
+    base_name = Path(input_psi_file).stem
+    output_path = os.path.join(output_dir, f"{base_name}_monte_results_from_PSI.xlsx")
+    pd.DataFrame([results]).to_excel(output_path, index=False)
+
+    print(f"[✓] Monte results from PSI saved to: {output_path}")
+    return results
+
+
+import os
+import pandas as pd
+from pathlib import Path
+
+def batch_pipeline_from_psi_files_to_monte(
+    input_psi_files,
+    output_path="batch_psi_to_monte_results.xlsx",
+    num_simulations=1000,
+    time_horizon=365,
+    T_insp=30,
+    T_tamp=60,
+    T_step=1,
+    AL=0.7,
+    e_s_mean=0.0,
+    e_s_stddev=0.01,
+    inspection_cost=100,
+    preventive_maintenance_cost=300,
+    normal_corrective_maintenance_cost=700,
+    emergency_corrective_maintenance_cost=1500,
+    recovery_thresholds=(0.6, 0.4, 0.2)
+):
+    all_results = []
+
+    for psi_file in input_psi_files:
+        try:
+            print(f"[•] Processing PSI file: {psi_file}")
+            result = full_pipeline_from_psi_to_monte(
+                input_psi_file=psi_file,
+                output_dir=".",  # temp individual result if needed
+                num_simulations=num_simulations,
+                time_horizon=time_horizon,
+                T_insp=T_insp,
+                T_tamp=T_tamp,
+                T_step=T_step,
+                AL=AL,
+                e_s_mean=e_s_mean,
+                e_s_stddev=e_s_stddev,
+                inspection_cost=inspection_cost,
+                preventive_maintenance_cost=preventive_maintenance_cost,
+                normal_corrective_maintenance_cost=normal_corrective_maintenance_cost,
+                emergency_corrective_maintenance_cost=emergency_corrective_maintenance_cost,
+                recovery_thresholds=recovery_thresholds
+            )
+            result["Segment"] = Path(psi_file).stem
+            all_results.append(result)
+        except Exception as e:
+            print(f"[!] Failed to process {psi_file}: {e}")
+
+    df = pd.DataFrame(all_results)
+    df.to_excel(output_path, index=False)
+    print(f"[✓] Batch Monte results from PSI saved to: {output_path}")
+    return df
 
 
 def alt_bs(x, gamma, alpha, beta):
@@ -434,29 +573,128 @@ def calculate_psi(cumulative_load, kf=KF, ml=ML):
     return 1 - np.exp(kf * ((cumulative_load / ml) - 1))
 
 
-def determine_psi(input_file, traffic_load_per_year, material_type, output_file="PSI_conver.xlsx"):
-    """
-    Reads an Excel file, calculates PSI values based on cumulative load, and saves the transformed data.
+def process_load_file_to_psi(input_file, traffic_load_per_year, material_type, output_file="PSI_converted.xlsx"):
+    import pandas as pd
+    import numpy as np
 
-    :param input_file: Path to the input Excel file
-    :param traffic_load_per_year: Annual traffic load (MGT per year)
-    :param material_type: Material type (1-6)
-    :param output_file: Path to save the output Excel file
-    """
-    # material constants
-    AGE_LIMITS = {1: 45, 2: 40, 3: 25, 4: 30, 5: 18, 6: 21}    
-    
+    # Material constants: age limit in years × traffic (MGT/year) = ML
+    AGE_LIMITS = {1: 45, 2: 40, 3: 25, 4: 30, 5: 18, 6: 21}
+    KF = 5.2
+
     if material_type not in AGE_LIMITS:
         raise ValueError("Invalid material type. Must be one of: 1, 2, 3, 4, 5, 6")
 
     ML = AGE_LIMITS[material_type] * traffic_load_per_year
 
+    def calculate_psi(cumulative_load, kf=KF, ml=ML):
+        return 1 - np.exp(kf * ((cumulative_load / ml) - 1))
+
+    def inverse_psi(psi, kf=KF, ml=ML):
+        if psi >= 1.0:
+            return 1.0
+        return ml * (1 + (1 / kf) * np.log(1 - psi))
+
+    # Load and verify structure
     df = pd.read_excel(input_file)
+    expected_cols = ["Date", "Cumulative Load", "Maintenance", "Maintenance Action"]
+    if not all(col in df.columns for col in expected_cols):
+        raise ValueError(f"Input file must contain columns: {expected_cols}")
 
-    df["PSI"] = df["Cumulative Load"].apply(lambda cl: calculate_psi(cl, ml=ML))
+    df["Date"] = pd.to_datetime(df["Date"])
+    df = df.sort_values(by="Date")
 
+    # Recovery effect ratios
+    recovery_ratios = {
+        1: 0.10,
+        2: 0.30,
+        3: 0.50,
+        4: 1.00  # Full reset
+    }
+
+    psi_values = []
+    memory_load = df.iloc[0]["Cumulative Load"]
+
+    for i, row in df.iterrows():
+        raw_load = row["Cumulative Load"]
+        maintenance = row["Maintenance"]
+        action = row["Maintenance Action"]
+
+        # Step 1: compute PSI based on the current "memory" load
+        psi = calculate_psi(memory_load)
+
+        # Step 2: if maintenance is performed, adjust PSI
+        if maintenance == 1:
+            if action not in recovery_ratios:
+                raise ValueError(f"Invalid Maintenance Action at index {i}: {action}")
+
+            recover_frac = recovery_ratios[action]
+            if recover_frac == 1.0:
+                psi = 1.0
+                memory_load = 1.0  # Reset to baseline
+            else:
+                lost = 1.0 - psi
+                psi = min(psi + recover_frac * lost, 1.0)
+                memory_load = inverse_psi(psi)
+
+        # Save PSI
+        psi_values.append(psi)
+
+        # Update memory load using delta between current and previous raw load
+        if i + 1 < len(df):
+            next_raw = df.iloc[i + 1]["Cumulative Load"]
+            delta = next_raw - raw_load
+            memory_load += delta
+
+    # Add PSI to DataFrame
+    df["PSI"] = psi_values
     output_df = df[["Date", "PSI", "Maintenance", "Maintenance Action"]]
-
     output_df.to_excel(output_file, index=False)
 
-    print(f"Processed file saved as {output_file}")
+    print(f"Processed PSI file saved as: {output_file}")
+    return output_df
+
+import os
+
+def batch_process_load_files_to_psi(
+    folder_path, traffic_load_per_year, material_type, output_folder=None
+):
+    """
+    Processes all Excel files in a folder, converting load data to PSI.
+
+    Args:
+        folder_path (str): Path to the folder containing input Excel files.
+        traffic_load_per_year (float): Annual traffic load in MGT/year.
+        material_type (int): Material type (1 to 6).
+        output_folder (str, optional): Folder to save output files. Defaults to folder_path.
+    """
+    if output_folder is None:
+        output_folder = folder_path
+
+    if not os.path.isdir(folder_path):
+        raise ValueError(f"Provided path is not a valid folder: {folder_path}")
+
+    input_files = [
+        f for f in os.listdir(folder_path)
+        if f.lower().endswith((".xls", ".xlsx")) and not f.startswith("~$")
+    ]
+
+    if not input_files:
+        raise ValueError("No Excel files found in the specified folder.")
+
+    for file in input_files:
+        input_path = os.path.join(folder_path, file)
+        output_name = f"PSI_{file}"
+        output_path = os.path.join(output_folder, output_name)
+
+        try:
+            print(f"Processing {file}...")
+            process_load_file_to_psi(
+                input_file=input_path,
+                traffic_load_per_year=traffic_load_per_year,
+                material_type=material_type,
+                output_file=output_path
+            )
+        except Exception as e:
+            print(f"[!] Failed to process {file}: {e}")
+
+    print("Batch processing complete.")
