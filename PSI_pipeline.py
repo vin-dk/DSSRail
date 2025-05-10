@@ -10,8 +10,12 @@ import matplotlib.pyplot as plt
 PSI
 """
 
+KF = 5.2
+AGE_LIMITS = {1: 45, 2: 40, 3: 25, 4: 30, 5: 18, 6: 21}
+# For testing: define a default ML for one of the materials (say material type 1 with 1.0 MGT/year)
+ML = AGE_LIMITS[1] * 1.0
+
 def take_in_PSI(file_path):
-    # NOTE, inverted from DLL_s
     import pandas as pd
     import numpy as np
     from scipy.stats import anderson
@@ -21,6 +25,9 @@ def take_in_PSI(file_path):
 
     try:
         df = pd.read_excel(file_path)
+        df.columns = df.columns.str.strip()  # Remove whitespace
+        df.columns = df.columns.str.replace('\ufeff', '')  # Remove BOM if present 
+        print("Raw columns:", df.columns.tolist())
     except Exception as e:
         raise ValueError(f"Failed to read Excel file: {e}")
 
@@ -63,12 +70,12 @@ def take_in_PSI(file_path):
         if days <= 0:
             continue
 
-        rate = (psi_start - psi_end) / days  # PSI drops over time → degradation is positive
+        rate = (psi_start - psi_end) / days
         degradation_rates.append(rate)
         time_intervals.append(days)
 
     psi_diffs = df["PSI"].diff().dropna()
-    psi_diffs = -psi_diffs[psi_diffs < 0]  # Invert to keep only actual PSI drops (positive degradation)
+    psi_diffs = -psi_diffs[psi_diffs < 0]
 
     if psi_diffs.empty:
         raise ValueError("Not enough valid positive degradation differences to test for lognormality.")
@@ -100,13 +107,15 @@ def take_in_PSI(file_path):
         PSI_0 = most_recent_maintenance["PSI"]
 
     print(f"PSI_0 (Initial PSI after last maintenance): {PSI_0}")
-
+    distribution = "lognormal" if result.statistic < result.critical_values[2] else "normal"
+    
     return {
         "PSI_0": PSI_0,
         "degradation_mean": degradation_mean,
         "degradation_stddev": degradation_stddev,
         "degradation_rates": degradation_rates,
         "time_intervals": time_intervals,
+        "distribution": distribution
     }
 
 
@@ -135,9 +144,9 @@ def recovery_PSI(current_PSI, maintenance_action):
 
     # Define recovery ratios (can tweak at runtime)
     recovery_ratios = {
-        1: 0.10,  # Minor: recover 10% of lost PSI
+        1: 0.40,  # Minor: recover 10% of lost PSI
         2: 0.30,  # Moderate: recover 30% of lost PSI
-        3: 0.50,  # Major: recover 50% of lost PSI
+        3: 0.20,  # Major: recover 50% of lost PSI
     }
 
     if maintenance_action not in recovery_ratios:
@@ -150,47 +159,72 @@ def recovery_PSI(current_PSI, maintenance_action):
 
 def sim_seg_PSI(
     time_horizon, T_insp, T_tamp, T_step, AL, PSI_0,
-    lognormal_mean, lognormal_stddev,
+    degradation_mean, degradation_stddev,
     e_s_mean, e_s_stddev,
-    recovery_thresholds=(0.6, 0.4, 0.2)
+    recovery_thresholds,
+    distribution
 ):
     t = 1
     tn = 0
     Npm = Ncm_n = Ncm_e = Ninsp = 0
     PSI_t = PSI_0
 
-    b_s = np.random.lognormal(mean=lognormal_mean, sigma=lognormal_stddev)
+    def sample_bs():
+        if distribution == "lognormal":
+            # Convert real-space mean and stddev to log-space for sampling
+            variance_ratio = degradation_stddev**2 / degradation_mean**2
+            sigma = np.sqrt(np.log(1 + variance_ratio))
+            mu = np.log(degradation_mean) - 0.5 * sigma**2
+            return np.random.lognormal(mean=mu, sigma=sigma)
+        elif distribution == "normal":
+            return max(np.random.normal(loc=degradation_mean, scale=degradation_stddev), 0)
+        else:
+            raise ValueError(f"Unsupported degradation distribution: {distribution}")
+
+    b_s = sample_bs()
+    print(f"[INIT] PSI_0: {PSI_0:.4f}, initial b_s: {b_s:.6f}")
 
     while t <= time_horizon:
         t += T_step
         e_s = np.random.normal(e_s_mean, e_s_stddev)
-        PSI_t = max(PSI_t - (b_s * T_step) - e_s, 0)
+        prev_PSI = PSI_t
+        PSI_t = min(max(PSI_t - (b_s * T_step) - e_s, 0), 1.0)
+        print(f"[t={t:03d}] PSI degraded from {prev_PSI:.4f} → {PSI_t:.4f} (b_s={b_s:.6f}, e_s={e_s:.6f})")
 
         if t % T_tamp == 0 and PSI_t <= AL:
+            PSI_before = PSI_t
             PSI_t = recovery_PSI(PSI_t, maintenance_action=1)
+            print(f"  ↳ [TAMP] Preventive Recovery at t={t}: {PSI_before:.4f} → {PSI_t:.4f}")
             Npm += 1
             tn = t
-            b_s = np.random.lognormal(mean=lognormal_mean, sigma=lognormal_stddev)
+            b_s = sample_bs()
+            print(f"  ↳ New b_s sampled after tamp: {b_s:.6f}")
 
         if t % T_insp == 0:
             Ninsp += 1
             if recovery_thresholds[0] < PSI_t <= 1.0:
-                continue
+                print(f"  ↳ [INSP] No action (PSI={PSI_t:.4f})")
             elif recovery_thresholds[1] < PSI_t <= recovery_thresholds[0]:
+                PSI_before = PSI_t
                 PSI_t = recovery_PSI(PSI_t, maintenance_action=2)
+                print(f"  ↳ [INSP] Moderate Recovery: {PSI_before:.4f} → {PSI_t:.4f}")
                 Ncm_n += 1
                 tn = t
-                b_s = np.random.lognormal(mean=lognormal_mean, sigma=lognormal_stddev)
+                b_s = sample_bs()
             elif recovery_thresholds[2] < PSI_t <= recovery_thresholds[1]:
+                PSI_before = PSI_t
                 PSI_t = recovery_PSI(PSI_t, maintenance_action=3)
+                print(f"  ↳ [INSP] Major Recovery: {PSI_before:.4f} → {PSI_t:.4f}")
                 Ncm_n += 1
                 tn = t
-                b_s = np.random.lognormal(mean=lognormal_mean, sigma=lognormal_stddev)
+                b_s = sample_bs()
             elif 0.0 <= PSI_t <= recovery_thresholds[2]:
+                PSI_before = PSI_t
                 PSI_t = recovery_PSI(PSI_t, maintenance_action=4)
+                print(f"  ↳ [INSP] Emergency Recovery: {PSI_before:.4f} → {PSI_t:.4f}")
                 Ncm_e += 1
                 tn = t
-                b_s = np.random.lognormal(mean=lognormal_mean, sigma=lognormal_stddev)
+                b_s = sample_bs()
 
     return {
         "final_t": t,
@@ -202,7 +236,6 @@ def sim_seg_PSI(
         "Number of inspections": Ninsp
     }
 
-
 def monte_PSI(
     time_horizon, T_insp, T_tamp, T_step, AL, PSI_0,
     degradation_mean, degradation_stddev,
@@ -210,7 +243,8 @@ def monte_PSI(
     num_simulations,
     inspection_cost, preventive_maintenance_cost,
     normal_corrective_maintenance_cost, emergency_corrective_maintenance_cost,
-    recovery_thresholds=(0.6, 0.4, 0.2)
+    recovery_thresholds,
+    distribution  # NEW
 ):
     total_inspections = total_pm = total_cm_n = total_cm_e = total_cost = 0
 
@@ -219,7 +253,8 @@ def monte_PSI(
             time_horizon, T_insp, T_tamp, T_step, AL, PSI_0,
             degradation_mean, degradation_stddev,
             e_s_mean, e_s_stddev,
-            recovery_thresholds
+            recovery_thresholds,
+            distribution  
         )
 
         inspections = result["Number of inspections"]
@@ -260,7 +295,8 @@ def run_multi_segment_monte(
     e_s_mean, e_s_stddev,
     num_simulations,
     inspection_cost, preventive_maintenance_cost,
-    normal_corrective_maintenance_cost, emergency_corrective_maintenance_cost
+    normal_corrective_maintenance_cost, emergency_corrective_maintenance_cost,
+    recovery_thresholds, distribution
 ):
     """
     Runs monte_PSI for a list of PSI_0 starting values with shared parameters.
@@ -274,13 +310,14 @@ def run_multi_segment_monte(
         result = monte_PSI(
             time_horizon, T_insp, T_tamp, T_step, AL, PSI_0,
             degradation_mean, degradation_stddev,
-            e_s_mean, e_s_stddev,  # These map to re_s_m and re_s_s but are used for e_s
-            RM=0, RV=0,  # Placeholder since PSI model doesn't currently use response time
+            e_s_mean, e_s_stddev,
             num_simulations=num_simulations,
             inspection_cost=inspection_cost,
             preventive_maintenance_cost=preventive_maintenance_cost,
             normal_corrective_maintenance_cost=normal_corrective_maintenance_cost,
-            emergency_corrective_maintenance_cost=emergency_corrective_maintenance_cost
+            emergency_corrective_maintenance_cost=emergency_corrective_maintenance_cost,
+            recovery_thresholds=recovery_thresholds,
+            distribution=distribution  
         )
         result["Segment Index"] = idx + 1
         result["Starting PSI"] = PSI_0
@@ -290,49 +327,10 @@ def run_multi_segment_monte(
 
 import pandas as pd
 
-
-def export_multi_segment_monte_results_to_excel(
-    PSI_0_list,
-    time_horizon, T_insp, T_tamp, T_step, AL,
-    degradation_mean, degradation_stddev,
-    e_s_mean, e_s_stddev,
-    num_simulations,
-    inspection_cost, preventive_maintenance_cost,
-    normal_corrective_maintenance_cost, emergency_corrective_maintenance_cost,
-    output_file="monte_psi_results.xlsx"
-):
-    """
-    Runs multi-segment Monte Carlo simulations and exports the results to an Excel file.
-    """
-    results = run_multi_segment_monte(
-        PSI_0_list,
-        time_horizon, T_insp, T_tamp, T_step, AL,
-        degradation_mean, degradation_stddev,
-        e_s_mean, e_s_stddev,
-        num_simulations,
-        inspection_cost, preventive_maintenance_cost,
-        normal_corrective_maintenance_cost, emergency_corrective_maintenance_cost
-    )
-
-    df = pd.DataFrame(results)
-    df = df[
-        [
-            "Segment Index", "Starting PSI",
-            "Average Inspections", "Average Preventive Maintenances",
-            "Average Normal Corrective Maintenances", "Average Emergency Corrective Maintenances",
-            "Average Cost"
-        ]
-    ]
-
-    df.to_excel(output_file, index=False)
-    print(f"[INFO] Monte Carlo results exported to: {output_file}")
-    return df
-
 def full_pipeline_from_load_to_monte(
     input_load_file,
     traffic_load_per_year,
     material_type,
-    output_dir=".",
     num_simulations=1000,
     time_horizon=365,
     T_insp=30,
@@ -345,129 +343,24 @@ def full_pipeline_from_load_to_monte(
     preventive_maintenance_cost=300,
     normal_corrective_maintenance_cost=700,
     emergency_corrective_maintenance_cost=1500,
-    recovery_thresholds=(0.6, 0.4, 0.2)
+    recovery_thresholds=(0.6, 0.4, 0.2),
+    distribution="lognormal"
 ):
-    import os
-
-    # Step 1: Convert Load File → PSI File
-    psi_df = process_load_file_to_psi(
+    # Step 1: Convert Load File → PSI (returns path to converted file)
+    psi_file = process_load_file_to_psi(
         input_file=input_load_file,
         traffic_load_per_year=traffic_load_per_year,
         material_type=material_type
     )
 
-    # Step 2: Derive initial PSI and degradation stats
-    stats = take_in_PSI(input_load_file.replace("Load", "converted"))
+    # Step 2: Get degradation stats from the converted PSI file
+    stats = take_in_PSI(psi_file)
     PSI_0 = stats["PSI_0"]
     degradation_mean = stats["degradation_mean"]
     degradation_stddev = stats["degradation_stddev"]
+    distribution_used = stats.get("distribution", distribution)
 
-    # Step 3: Run Monte Carlo for this one segment
-    results = run_multi_segment_monte(
-        psi_list=[PSI_0],
-        num_simulations=num_simulations,
-        time_horizon=time_horizon,
-        T_insp=T_insp,
-        T_tamp=T_tamp,
-        T_step=T_step,
-        AL=AL,
-        degradation_mean=degradation_mean,
-        degradation_stddev=degradation_stddev,
-        e_s_mean=e_s_mean,
-        e_s_stddev=e_s_stddev,
-        inspection_cost=inspection_cost,
-        preventive_maintenance_cost=preventive_maintenance_cost,
-        normal_corrective_maintenance_cost=normal_corrective_maintenance_cost,
-        emergency_corrective_maintenance_cost=emergency_corrective_maintenance_cost,
-        recovery_thresholds=recovery_thresholds
-    )
-
-    # Step 4: Save results to Excel
-    base_name = os.path.splitext(os.path.basename(input_load_file))[0]
-    out_path = os.path.join(output_dir, f"{base_name}_monte_results.xlsx")
-    export_multi_segment_monte_results_to_excel(results, out_path)
-
-    print(f"Full pipeline complete. Results saved to: {out_path}")
-    return results
-
-def full_pipeline_multi_load_to_monte(
-    load_file_list,
-    traffic_load_per_year,
-    material_type,
-    output_dir=".",
-    num_simulations=1000,
-    time_horizon=365,
-    T_insp=30,
-    T_tamp=60,
-    T_step=1,
-    AL=0.7,
-    e_s_mean=0.0,
-    e_s_stddev=0.01,
-    inspection_cost=100,
-    preventive_maintenance_cost=300,
-    normal_corrective_maintenance_cost=700,
-    emergency_corrective_maintenance_cost=1500,
-    recovery_thresholds=(0.6, 0.4, 0.2)
-):
-    all_results = {}
-
-    for file_path in load_file_list:
-        print(f"\n[•] Processing file: {file_path}")
-        try:
-            result = full_pipeline_from_load_to_monte(
-                input_load_file=file_path,
-                traffic_load_per_year=traffic_load_per_year,
-                material_type=material_type,
-                output_dir=output_dir,
-                num_simulations=num_simulations,
-                time_horizon=time_horizon,
-                T_insp=T_insp,
-                T_tamp=T_tamp,
-                T_step=T_step,
-                AL=AL,
-                e_s_mean=e_s_mean,
-                e_s_stddev=e_s_stddev,
-                inspection_cost=inspection_cost,
-                preventive_maintenance_cost=preventive_maintenance_cost,
-                normal_corrective_maintenance_cost=normal_corrective_maintenance_cost,
-                emergency_corrective_maintenance_cost=emergency_corrective_maintenance_cost,
-                recovery_thresholds=recovery_thresholds
-            )
-            all_results[os.path.basename(file_path)] = result
-
-        except Exception as e:
-            print(f"[!] Failed to process {file_path}: {e}")
-
-    print("\n[✓] All load files processed.")
-    return all_results
-
-def full_pipeline_from_psi_to_monte(
-    input_psi_file,
-    output_dir=".",
-    num_simulations=1000,
-    time_horizon=365,
-    T_insp=30,
-    T_tamp=60,
-    T_step=1,
-    AL=0.7,
-    e_s_mean=0.0,
-    e_s_stddev=0.01,
-    inspection_cost=100,
-    preventive_maintenance_cost=300,
-    normal_corrective_maintenance_cost=700,
-    emergency_corrective_maintenance_cost=1500,
-    recovery_thresholds=(0.6, 0.4, 0.2)
-):
-    from pathlib import Path
-
-    # 1. Derive degradation and PSI_0
-    degradation_data = take_in_PSI(input_psi_file)
-
-    PSI_0 = degradation_data["PSI_0"]
-    degradation_mean = degradation_data["degradation_mean"]
-    degradation_stddev = degradation_data["degradation_stddev"]
-
-    # 2. Run Monte Carlo
+    # Step 3: Run Monte Carlo simulation
     results = monte_PSI(
         time_horizon=time_horizon,
         T_insp=T_insp,
@@ -478,24 +371,167 @@ def full_pipeline_from_psi_to_monte(
         degradation_mean=degradation_mean,
         degradation_stddev=degradation_stddev,
         e_s_mean=e_s_mean,
-        e_s_variance=e_s_stddev,
-        re_s_m=e_s_mean,
-        re_s_s=e_s_stddev,
-        RM=0,
-        RV=0,
+        e_s_stddev=e_s_stddev,
         num_simulations=num_simulations,
         inspection_cost=inspection_cost,
         preventive_maintenance_cost=preventive_maintenance_cost,
         normal_corrective_maintenance_cost=normal_corrective_maintenance_cost,
-        emergency_corrective_maintenance_cost=emergency_corrective_maintenance_cost
+        emergency_corrective_maintenance_cost=emergency_corrective_maintenance_cost,
+        recovery_thresholds=recovery_thresholds,
+        distribution=distribution_used
     )
 
-    # 3. Export results
-    base_name = Path(input_psi_file).stem
-    output_path = os.path.join(output_dir, f"{base_name}_monte_results_from_PSI.xlsx")
-    pd.DataFrame([results]).to_excel(output_path, index=False)
+    # Step 4: Save output to Excel
+    segment_name = Path(input_load_file).stem
+    output_path = os.path.join(".", f"{segment_name}_monte_results.xlsx")
+    df = pd.DataFrame([results])
 
-    print(f"[✓] Monte results from PSI saved to: {output_path}")
+    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+        df.to_excel(writer, sheet_name="Segment 1", index=False)
+
+    print(f"[✓] Monte Carlo results saved to: {output_path}")
+    return results
+
+
+def full_pipeline_multi_load_to_monte(
+    load_file_list,
+    traffic_load_per_year,
+    material_type,
+    output_dir=".",
+    output_file="batch_load_to_monte_results.xlsx",
+    num_simulations=1000,
+    time_horizon=365,
+    T_insp=30,
+    T_tamp=60,
+    T_step=1,
+    AL=0.7,
+    e_s_mean=0.0,
+    e_s_stddev=0.01,
+    inspection_cost=100,
+    preventive_maintenance_cost=300,
+    normal_corrective_maintenance_cost=700,
+    emergency_corrective_maintenance_cost=1500,
+    recovery_thresholds=(0.6, 0.4, 0.2),
+    distribution="lognormal"
+):
+    from pathlib import Path
+    from openpyxl.utils.exceptions import IllegalCharacterError
+
+    all_results = []
+    output_path = os.path.join(output_dir, output_file)
+
+    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+        for idx, file_path in enumerate(load_file_list):
+            try:
+                print(f"[•] Processing file: {file_path}")
+                result = full_pipeline_from_load_to_monte(
+                    input_load_file=file_path,
+                    traffic_load_per_year=traffic_load_per_year,
+                    material_type=material_type,
+                    output_dir=".",  # suppress file writing here
+                    num_simulations=num_simulations,
+                    time_horizon=time_horizon,
+                    T_insp=T_insp,
+                    T_tamp=T_tamp,
+                    T_step=T_step,
+                    AL=AL,
+                    e_s_mean=e_s_mean,
+                    e_s_stddev=e_s_stddev,
+                    inspection_cost=inspection_cost,
+                    preventive_maintenance_cost=preventive_maintenance_cost,
+                    normal_corrective_maintenance_cost=normal_corrective_maintenance_cost,
+                    emergency_corrective_maintenance_cost=emergency_corrective_maintenance_cost,
+                    recovery_thresholds=recovery_thresholds,
+                    distribution=distribution
+                )
+
+                segment_name = Path(file_path).stem
+                result["Segment"] = segment_name
+                all_results.append(result)
+
+                df_segment = pd.DataFrame([result])
+                try:
+                    df_segment.to_excel(writer, sheet_name=f"Segment {idx + 1}", index=False)
+                except IllegalCharacterError:
+                    df_segment.to_excel(writer, sheet_name=f"Segment_{idx + 1}", index=False)
+
+            except Exception as e:
+                print(f"[!] Failed to process {file_path}: {e}")
+
+        # === Summary sheet ===
+        if all_results:
+            df_all = pd.DataFrame(all_results)
+
+            summary_metrics = [
+                "Average Cost", "Average Inspections",
+                "Average Preventive Maintenances",
+                "Average Normal Corrective Maintenances",
+                "Average Emergency Corrective Maintenances"
+            ]
+
+            df_summary = df_all[["Segment"] + summary_metrics].copy()
+            df_summary.loc["Total"] = df_summary[summary_metrics].sum(numeric_only=True)
+            df_summary.loc["Mean"] = df_summary[summary_metrics].mean(numeric_only=True)
+            df_summary.to_excel(writer, sheet_name="Summary", index=False)
+
+    print(f"[✓] Batch load Monte Carlo workbook saved to: {output_path}")
+    return pd.DataFrame(all_results)
+
+
+def full_pipeline_from_psi_to_monte(
+    input_psi_file,
+    num_simulations=1000,
+    time_horizon=365,
+    T_insp=30,
+    T_tamp=60,
+    T_step=1,
+    AL=0.7,
+    e_s_mean=0.0,
+    e_s_stddev=0.01,
+    inspection_cost=100,
+    preventive_maintenance_cost=300,
+    normal_corrective_maintenance_cost=700,
+    emergency_corrective_maintenance_cost=1500,
+    recovery_thresholds=(0.6, 0.4, 0.2),
+    distribution="lognormal"
+):
+    # Step 1: Extract PSI + degradation stats
+    stats = take_in_PSI(input_psi_file)
+    PSI_0 = stats["PSI_0"]
+    degradation_mean = stats["degradation_mean"]
+    degradation_stddev = stats["degradation_stddev"]
+    distribution_used = stats.get("distribution", distribution)
+
+    # Step 2: Run Monte Carlo
+    results = monte_PSI(
+        time_horizon=time_horizon,
+        T_insp=T_insp,
+        T_tamp=T_tamp,
+        T_step=T_step,
+        AL=AL,
+        PSI_0=PSI_0,
+        degradation_mean=degradation_mean,
+        degradation_stddev=degradation_stddev,
+        e_s_mean=e_s_mean,
+        e_s_stddev=e_s_stddev,
+        num_simulations=num_simulations,
+        inspection_cost=inspection_cost,
+        preventive_maintenance_cost=preventive_maintenance_cost,
+        normal_corrective_maintenance_cost=normal_corrective_maintenance_cost,
+        emergency_corrective_maintenance_cost=emergency_corrective_maintenance_cost,
+        recovery_thresholds=recovery_thresholds,
+        distribution=distribution_used
+    )
+    
+    # === Save to Excel (single-sheet) ===
+    segment_name = Path(input_load_file if "load" in locals() else input_psi_file).stem
+    df = pd.DataFrame([results])
+    output_path = os.path.join(".", f"{segment_name}_monte_results.xlsx")
+    
+    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+        df.to_excel(writer, sheet_name="Segment 1", index=False)
+    
+
     return results
 
 
@@ -518,66 +554,84 @@ def batch_pipeline_from_psi_files_to_monte(
     preventive_maintenance_cost=300,
     normal_corrective_maintenance_cost=700,
     emergency_corrective_maintenance_cost=1500,
-    recovery_thresholds=(0.6, 0.4, 0.2)
+    recovery_thresholds=(0.6, 0.4, 0.2),
+    distribution="lognormal"
 ):
+    from pathlib import Path
+    from openpyxl.utils.exceptions import IllegalCharacterError
+
     all_results = []
 
-    for psi_file in input_psi_files:
-        try:
-            print(f"[•] Processing PSI file: {psi_file}")
-            result = full_pipeline_from_psi_to_monte(
-                input_psi_file=psi_file,
-                output_dir=".",  # temp individual result if needed
-                num_simulations=num_simulations,
-                time_horizon=time_horizon,
-                T_insp=T_insp,
-                T_tamp=T_tamp,
-                T_step=T_step,
-                AL=AL,
-                e_s_mean=e_s_mean,
-                e_s_stddev=e_s_stddev,
-                inspection_cost=inspection_cost,
-                preventive_maintenance_cost=preventive_maintenance_cost,
-                normal_corrective_maintenance_cost=normal_corrective_maintenance_cost,
-                emergency_corrective_maintenance_cost=emergency_corrective_maintenance_cost,
-                recovery_thresholds=recovery_thresholds
-            )
-            result["Segment"] = Path(psi_file).stem
-            all_results.append(result)
-        except Exception as e:
-            print(f"[!] Failed to process {psi_file}: {e}")
+    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+        for idx, psi_file in enumerate(input_psi_files):
+            try:
+                print(f"[•] Processing PSI file: {psi_file}")
+                result = full_pipeline_from_psi_to_monte(
+                    input_psi_file=psi_file,
+                    output_dir=".",  # prevent inner function from saving
+                    num_simulations=num_simulations,
+                    time_horizon=time_horizon,
+                    T_insp=T_insp,
+                    T_tamp=T_tamp,
+                    T_step=T_step,
+                    AL=AL,
+                    e_s_mean=e_s_mean,
+                    e_s_stddev=e_s_stddev,
+                    inspection_cost=inspection_cost,
+                    preventive_maintenance_cost=preventive_maintenance_cost,
+                    normal_corrective_maintenance_cost=normal_corrective_maintenance_cost,
+                    emergency_corrective_maintenance_cost=emergency_corrective_maintenance_cost,
+                    recovery_thresholds=recovery_thresholds,
+                    distribution=distribution
+                )
 
-    df = pd.DataFrame(all_results)
-    df.to_excel(output_path, index=False)
-    print(f"[✓] Batch Monte results from PSI saved to: {output_path}")
-    return df
+                segment_name = Path(psi_file).stem
+                result["Segment"] = segment_name
+                all_results.append(result)
 
+                df_segment = pd.DataFrame([result])
+                try:
+                    df_segment.to_excel(writer, sheet_name=f"Segment {idx + 1}", index=False)
+                except IllegalCharacterError:
+                    df_segment.to_excel(writer, sheet_name=f"Segment_{idx + 1}", index=False)
 
-def alt_bs(x, gamma, alpha, beta):
-    # Defined in terms of axle rotations OR tonnage (x), y is determined
-    # Important that the constants (alpha, beta, gamma) are calibrated in regards to rotation or tonnage, as well as for SDLLs SPECIFICALLY
-    # This should be an accurate guesstimate though. The data-driven method should be better though
-    
-    # WHEN I CAN FIND ACCURATE constants such that a, b, g is described in terms of SDLLs and x, then this should be easy to present to user as table
-    # I do not have access to article that claims to have this empirical information though 
+            except Exception as e:
+                print(f"[!] Failed to process {psi_file}: {e}")
 
-    # Calculate degradation using the empirical formula
-    y = gamma * (1 - np.exp(-alpha * x)) + beta * x
-    
-    return y
+        # === Summary Sheet ===
+        if all_results:
+            df_all = pd.DataFrame(all_results)
 
+            summary_metrics = [
+                "Average Cost", "Average Inspections",
+                "Average Preventive Maintenances",
+                "Average Normal Corrective Maintenances",
+                "Average Emergency Corrective Maintenances"
+            ]
+
+            df_summary = df_all[["Segment"] + summary_metrics].copy()
+            df_summary.loc["Total"] = df_summary[summary_metrics].sum(numeric_only=True)
+            df_summary.loc["Mean"] = df_summary[summary_metrics].mean(numeric_only=True)
+            df_summary.to_excel(writer, sheet_name="Summary", index=False)
+
+    print(f"Batch PSI Monte Carlo workbook saved to: {output_path}")
+    return pd.DataFrame(all_results)
 
 def calculate_psi(cumulative_load, kf=KF, ml=ML):
     # given constant
     kf = 5.2
     return 1 - np.exp(kf * ((cumulative_load / ml) - 1))
 
+def inverse_psi(psi, kf=KF, ml=ML):
+    if psi >= 1.0:
+        return 1.0
+    return ml * (1 + (1 / kf) * np.log(1 - psi))
 
-def process_load_file_to_psi(input_file, traffic_load_per_year, material_type, output_file="PSI_converted.xlsx"):
+
+def process_load_file_to_psi(input_file, traffic_load_per_year, material_type, output_file=None):
     import pandas as pd
     import numpy as np
 
-    # Material constants: age limit in years × traffic (MGT/year) = ML
     AGE_LIMITS = {1: 45, 2: 40, 3: 25, 4: 30, 5: 18, 6: 21}
     KF = 5.2
 
@@ -586,15 +640,6 @@ def process_load_file_to_psi(input_file, traffic_load_per_year, material_type, o
 
     ML = AGE_LIMITS[material_type] * traffic_load_per_year
 
-    def calculate_psi(cumulative_load, kf=KF, ml=ML):
-        return 1 - np.exp(kf * ((cumulative_load / ml) - 1))
-
-    def inverse_psi(psi, kf=KF, ml=ML):
-        if psi >= 1.0:
-            return 1.0
-        return ml * (1 + (1 / kf) * np.log(1 - psi))
-
-    # Load and verify structure
     df = pd.read_excel(input_file)
     expected_cols = ["Date", "Cumulative Load", "Maintenance", "Maintenance Action"]
     if not all(col in df.columns for col in expected_cols):
@@ -603,12 +648,11 @@ def process_load_file_to_psi(input_file, traffic_load_per_year, material_type, o
     df["Date"] = pd.to_datetime(df["Date"])
     df = df.sort_values(by="Date")
 
-    # Recovery effect ratios
     recovery_ratios = {
-        1: 0.10,
+        1: 0.40,
         2: 0.30,
-        3: 0.50,
-        4: 1.00  # Full reset
+        3: 0.20,
+        4: 1.00
     }
 
     psi_values = []
@@ -619,39 +663,37 @@ def process_load_file_to_psi(input_file, traffic_load_per_year, material_type, o
         maintenance = row["Maintenance"]
         action = row["Maintenance Action"]
 
-        # Step 1: compute PSI based on the current "memory" load
         psi = calculate_psi(memory_load)
 
-        # Step 2: if maintenance is performed, adjust PSI
         if maintenance == 1:
             if action not in recovery_ratios:
                 raise ValueError(f"Invalid Maintenance Action at index {i}: {action}")
-
             recover_frac = recovery_ratios[action]
             if recover_frac == 1.0:
                 psi = 1.0
-                memory_load = 1.0  # Reset to baseline
+                memory_load = 1.0
             else:
                 lost = 1.0 - psi
                 psi = min(psi + recover_frac * lost, 1.0)
                 memory_load = inverse_psi(psi)
 
-        # Save PSI
         psi_values.append(psi)
 
-        # Update memory load using delta between current and previous raw load
         if i + 1 < len(df):
             next_raw = df.iloc[i + 1]["Cumulative Load"]
             delta = next_raw - raw_load
             memory_load += delta
 
-    # Add PSI to DataFrame
     df["PSI"] = psi_values
     output_df = df[["Date", "PSI", "Maintenance", "Maintenance Action"]]
-    output_df.to_excel(output_file, index=False)
 
+    if output_file is None:
+        # Dynamic output: same name but with '_converted' suffix
+        output_file = Path(input_file).with_stem(Path(input_file).stem + "_converted")
+
+    output_df.to_excel(output_file, index=False)
     print(f"Processed PSI file saved as: {output_file}")
-    return output_df
+    return str(output_file)
 
 import os
 
@@ -698,3 +740,109 @@ def batch_process_load_files_to_psi(
             print(f"[!] Failed to process {file}: {e}")
 
     print("Batch processing complete.")
+
+
+# === ROUND-TRIP SANITY TEST: PSI ↔ Load ===
+print("\n[TEST] Verifying that calculate_psi and inverse_psi are inverses...")
+
+# Assume constants from your script
+traffic_load_per_year = 1.0
+material_type = 1
+AGE_LIMITS = {1: 45, 2: 40, 3: 25, 4: 30, 5: 18, 6: 21}
+KF = 5.2
+ML = AGE_LIMITS[material_type] * traffic_load_per_year
+
+# Pick a representative cumulative load
+original_load = 20
+
+# Use your real functions from the script (no redefinition)
+psi = calculate_psi(original_load, kf=KF, ml=ML)
+recovered_load = inverse_psi(psi, kf=KF, ml=ML)
+
+# Show results
+print(f"Original Load:      {original_load}")
+print(f"Calculated PSI:     {psi:.10f}")
+print(f"Recovered Load:     {recovered_load:.10f}")
+print(f"Absolute Error:     {abs(original_load - recovered_load):.10e}")
+
+# Assert equality within tight tolerance
+assert abs(original_load - recovered_load) < 1e-6, "PSI inverse mapping failed!"
+
+print("[✓] PSI <-> Load round-trip passed.\n")
+
+
+from math import isclose
+
+# Convert starting load to PSI
+load_start = 20
+kf = 5.2
+ml = 25 * 20  # Material type 3: 25 years × 20 MGT/year = 500 MGT
+
+psi_0 = calculate_psi(load_start, kf=kf, ml=ml)
+
+# Dry run
+results = monte_PSI(
+    time_horizon=730,
+    T_insp=60,
+    T_tamp=120,
+    T_step=1,
+    AL=0.7,
+    PSI_0=psi_0,
+    degradation_mean= 0.0003,
+    degradation_stddev= 0.0005,
+    e_s_mean=0.0,
+    e_s_stddev=0.002,
+    num_simulations=10,
+    inspection_cost=100,
+    preventive_maintenance_cost=500,
+    normal_corrective_maintenance_cost=1500,
+    emergency_corrective_maintenance_cost=5000,
+    recovery_thresholds=(0.6, 0.4, 0.2),
+    distribution = "lognormal"
+)
+
+print("\n[✓] Dry run complete.")
+for k, v in results.items():
+    print(f"{k}: {v}")
+    
+load_file = r"C:\Users\13046\test_load_file.xlsx"
+
+full_pipeline_from_load_to_monte(
+        input_load_file=load_file,
+        traffic_load_per_year=traffic_load_per_year,
+        material_type=material_type,
+        num_simulations=500,  # or however many you want
+        time_horizon=365,
+        T_insp=30,
+        T_tamp=60,
+        T_step=1,
+        AL=0.7,
+        e_s_mean=0.0,
+        e_s_stddev=0.01,
+        inspection_cost=100,
+        preventive_maintenance_cost=300,
+        normal_corrective_maintenance_cost=700,
+        emergency_corrective_maintenance_cost=1500,
+        recovery_thresholds=(0.6, 0.4, 0.2),
+        distribution="lognormal"
+    )
+
+psi_file = r"C:\Users\13046\test_psi_file.xlsx"
+
+full_pipeline_from_psi_to_monte(
+        input_psi_file=psi_file,
+        num_simulations=500,
+        time_horizon=365,
+        T_insp=30,
+        T_tamp=60,
+        T_step=1,
+        AL=0.7,
+        e_s_mean=0.0,
+        e_s_stddev=0.01,
+        inspection_cost=100,
+        preventive_maintenance_cost=300,
+        normal_corrective_maintenance_cost=700,
+        emergency_corrective_maintenance_cost=1500,
+        recovery_thresholds=(0.6, 0.4, 0.2),
+        distribution="lognormal"
+    )
